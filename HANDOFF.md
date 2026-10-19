@@ -12,7 +12,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
 | Diseño de la extensión de navegador | **Documentado**, sin código aún. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
-| Sincronización entre equipos | OneDrive activo (esta carpeta) + Git recomendado. |
+| Sincronización entre equipos | OneDrive activo + **repo Git local inicializado** (commit `2453912`); falta remoto. |
 
 Invariante del proyecto: **`AIRE = 0`** en todos los cálculos.
 
@@ -128,22 +128,20 @@ sincronización mientras compilas si notas archivos bloqueados.
 
 Ventajas: historial, ramas, diffs, y no dependes del sync de archivos.
 
-En este equipo **Git no está instalado**. Instala **Git for Windows** o usa
-**GitHub Desktop** / **VS Code** (traen Git). Luego:
+**Ya está hecho en este equipo:** Git 2.55 instalado, repositorio inicializado y
+primer commit creado (`2453912`, 58 archivos, `out/` excluido). **Solo falta el
+remoto.**
+
+Crea un repo **privado vacío** (GitHub/GitLab/Azure DevOps) y ejecuta:
 
 ```bat
 cd "C:\Users\avilcnar\OneDrive - NTT DATA EMEAL\Documentos\Proyecto predeterminado"
-git init
-git add .
-git commit -m "Estado inicial: app Java + diseño de extension"
-```
-
-Crea un repo **privado** (GitHub/GitLab/Azure DevOps) y:
-
-```bat
 git remote add origin <URL_DEL_REPO>
 git push -u origin main
 ```
+
+La primera vez, **Git Credential Manager** abrirá una ventana para autenticarte
+(navegador o token). No hace falta pegar credenciales en el chat.
 
 En la otra PC:
 
@@ -168,7 +166,7 @@ Mantén OneDrive como copia automática y Git como historial/remoto. Lo importan
 - **`AIRE = 0` es invariante.** No introducir arrastre/viento sin cambiar el diseño.
 - No borrar controles existentes sin justificar.
 - No declarar que "funciona en producción" sin completar §16.
-- El proyecto **no es un repo git todavía**; el `.gitignore` ya está preparado.
+- El repo git local **ya está inicializado** (rama `main`, commit `2453912`).
 - `dragonshot.properties` contiene la calibración actual; si la otra PC tiene otro
   juego/resolución, vuelve a calibrar.
 
