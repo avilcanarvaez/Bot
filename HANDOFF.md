@@ -12,7 +12,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
 | Diseño de la extensión de navegador | **Documentado**, sin código aún. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
-| Sincronización entre equipos | OneDrive activo + **repo Git local inicializado** (commit `2453912`); falta remoto. |
+| Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
 Invariante del proyecto: **`AIRE = 0`** en todos los cálculos.
 
@@ -128,28 +128,28 @@ sincronización mientras compilas si notas archivos bloqueados.
 
 Ventajas: historial, ramas, diffs, y no dependes del sync de archivos.
 
-**Ya está hecho en este equipo:** Git 2.55 instalado, repositorio inicializado y
-primer commit creado (`2453912`, 58 archivos, `out/` excluido). **Solo falta el
-remoto.**
+**Ya está subido:** repositorio local + remoto GitHub
+[`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot), rama `main`.
 
-Crea un repo **privado vacío** (GitHub/GitLab/Azure DevOps) y ejecuta:
-
-```bat
-cd "C:\Users\avilcnar\OneDrive - NTT DATA EMEAL\Documentos\Proyecto predeterminado"
-git remote add origin <URL_DEL_REPO>
-git push -u origin main
-```
-
-La primera vez, **Git Credential Manager** abrirá una ventana para autenticarte
-(navegador o token). No hace falta pegar credenciales en el chat.
-
-En la otra PC:
+Para traerlo a la otra PC:
 
 ```bat
-git clone <URL_DEL_REPO>
-cd Proyecto predeterminado
+git clone https://github.com/avilcanarvaez/Bot.git
+cd Bot
 test.cmd
 ```
+
+Para seguir trabajando en esta PC:
+
+```bat
+git pull
+git add .
+git commit -m "descripcion del cambio"
+git push
+```
+
+> La primera vez, **Git Credential Manager** pedirá iniciar sesión en GitHub
+> (navegador o token).
 
 > `.gitignore` ya excluye `out/` y archivos de IDE. Los `.jar` de `lib/` sí se
 > versionan (5.8 MB) para que compile sin descargar nada.
