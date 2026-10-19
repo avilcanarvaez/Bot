@@ -1,0 +1,24 @@
+# Build (generado)
+/out/
+*.class
+
+# IDE / editores
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Logs y temporales
+*.log
+*.tmp
+hs_err_pid*.log
+replay_pid*.log
+
+# Nota: NO se ignora dragonshot.properties (es la calibración del proyecto).
+# Nota: SÍ se versiona lib/*.jar (dependencias incluidas a propósito).

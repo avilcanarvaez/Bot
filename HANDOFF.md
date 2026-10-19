@@ -1,0 +1,181 @@
+# Handoff — DragonShot / Extensión DragonBound
+
+Documento para **continuar el trabajo en otra computadora**. Resume qué hay, cómo
+ejecutarlo, qué está pendiente y cómo sincronizar.
+
+---
+
+## 1. Estado actual (resumen)
+
+| Área | Estado |
+|---|---|
+| App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
+| Diseño de la extensión de navegador | **Documentado**, sin código aún. |
+| Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
+| Sincronización entre equipos | OneDrive activo (esta carpeta) + Git recomendado. |
+
+Invariante del proyecto: **`AIRE = 0`** en todos los cálculos.
+
+---
+
+## 2. Requisitos en la otra PC
+
+- **Windows 10/11** para la app Java (usa JNA / Win32).
+- **JDK 21** (con `javac`).
+- Opcional: **Git** o GitHub Desktop para versionado.
+- Para la extensión (fase futura): **Chrome/Edge** (MV3).
+
+### JDK
+
+Los scripts ahora buscan el JDK automáticamente (variable `JAVA_HOME`, `Program
+Files`, `Adoptium`, `Microsoft`, `Corretto`, `Zulu`, `%USERPROFILE%\.jdks`, etc.).
+Si no lo encuentran, define:
+
+```bat
+setx JAVA_HOME "C:\ruta\a\jdk-21"
+```
+
+y abre una consola nueva. También puedes pasar `-Jdk <ruta>` a los `.ps1`.
+
+Comprobar:
+
+```bat
+java -version
+javac -version
+```
+
+---
+
+## 3. Cómo ejecutar
+
+Desde la carpeta del proyecto:
+
+```bat
+build.cmd
+test.cmd
+run.cmd
+```
+
+Diagnóstico de captura/DPI (solo Windows):
+
+```bat
+diagnose.cmd
+overlay-smoke.cmd
+```
+
+Si PowerShell bloquea los `.ps1`, usa los `.cmd` (ya aplican
+`-ExecutionPolicy Bypass`) o:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+```
+
+Resultado esperado de `test.cmd`: **39 tests OK**.
+
+---
+
+## 4. Mapa de archivos
+
+```
+docs/
+  DISENO_EXTENSION_WEB.md      <- diseño completo de la extensión (§16 = verificación real)
+  mockup-extension.html        <- mockup visual de la extensión
+src/main/java/com/dragonshot/sim/
+  capture/    captura de ventana (Robot/JNA), DPI, click-through
+  geometry/   coordenadas y transformaciones
+  physics/    balística, DragModel.NO_AIR (AIRE=0)
+  vision/     template matching, detección de ángulo (Hough)
+  pipeline/   integración captura -> estado -> simulación
+  state/      estado de sesión y staleness
+  ui/         overlay y panel de control
+  tools/      Diagnostics, OverlaySmoke
+src/test/java/  pruebas JUnit + PerfSmoke + integración
+lib/            jna, jna-platform, junit-console (versionados)
+scripts/find-jdk.ps1   detección portable de JDK
+dragonshot.properties  calibración actual
+out/            build (ignorado por git)
+```
+
+---
+
+## 5. Qué está pendiente (prioridad)
+
+1. **(BLOQUEANTE) Verificación real** — `docs/DISENO_EXTENSION_WEB.md` §16.
+   - `https://dragonbound.net/` está bloqueado desde este equipo (403 / Cloudflare).
+   - Hace falta ejecutar el checklist §16.3 desde una red con acceso, o aportar un
+     **HAR con frames de WebSocket** + captura para analizarlo offline.
+   - Confirmar: motor (Pixi?), URL del WS, opcodes, constantes (`398`, `2.34`, `485`),
+     lectura de `ang`, viewport/CSP.
+2. Implementar la extensión (fases 0–5 del diseño) una vez verificado el perfil.
+3. Afinar detección con frames reales del juego (si se usa el plan B de visión).
+
+---
+
+## 6. Cómo sincronizar entre equipos
+
+### Opción A — OneDrive (ya activo, la más simple)
+
+Esta carpeta ya está dentro de OneDrive for Business. En la otra PC:
+
+1. Inicia sesión con **la misma cuenta**.
+2. Deja que se sincronice `Documentos\Proyecto predeterminado`.
+3. Abre la carpeta y ejecuta `test.cmd`.
+
+Cuidados: evita editar/compilar en ambas PCs a la vez (conflictos), y pausa la
+sincronización mientras compilas si notas archivos bloqueados.
+
+### Opción B — Git + repositorio privado (recomendada)
+
+Ventajas: historial, ramas, diffs, y no dependes del sync de archivos.
+
+En este equipo **Git no está instalado**. Instala **Git for Windows** o usa
+**GitHub Desktop** / **VS Code** (traen Git). Luego:
+
+```bat
+cd "C:\Users\avilcnar\OneDrive - NTT DATA EMEAL\Documentos\Proyecto predeterminado"
+git init
+git add .
+git commit -m "Estado inicial: app Java + diseño de extension"
+```
+
+Crea un repo **privado** (GitHub/GitLab/Azure DevOps) y:
+
+```bat
+git remote add origin <URL_DEL_REPO>
+git push -u origin main
+```
+
+En la otra PC:
+
+```bat
+git clone <URL_DEL_REPO>
+cd Proyecto predeterminado
+test.cmd
+```
+
+> `.gitignore` ya excluye `out/` y archivos de IDE. Los `.jar` de `lib/` sí se
+> versionan (5.8 MB) para que compile sin descargar nada.
+
+### Opción C — Ambas (recomendada si hay OneDrive)
+
+Mantén OneDrive como copia automática y Git como historial/remoto. Lo importante es
+**no** trabajar simultáneamente en las dos PCs sobre los mismos archivos.
+
+---
+
+## 7. Convenciones y avisos
+
+- **`AIRE = 0` es invariante.** No introducir arrastre/viento sin cambiar el diseño.
+- No borrar controles existentes sin justificar.
+- No declarar que "funciona en producción" sin completar §16.
+- El proyecto **no es un repo git todavía**; el `.gitignore` ya está preparado.
+- `dragonshot.properties` contiene la calibración actual; si la otra PC tiene otro
+  juego/resolución, vuelve a calibrar.
+
+---
+
+## 8. Próximo paso sugerido
+
+1. En la otra PC: `test.cmd` (confirmar 39 tests).
+2. Conseguir acceso a `dragonbound.net` (o un HAR) y ejecutar §16.3.
+3. Con el perfil confirmado, empezar la **Fase 0–1** de la extensión.
