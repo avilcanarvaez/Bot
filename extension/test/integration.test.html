@@ -351,12 +351,16 @@
         assert('marca de potencia dibujada en el canvas', markerPixel[3] > 0,
           { pixel: Array.from(markerPixel) });
 
-        // Destino a la izquierda con look=0: el origen debe espejarse a la
-        // izquierda del móvil y la trayectoria también.
+        // Destino a la izquierda con look=0: el nodo del cañón viene espejado
+        // en vertical, así que raw=240 corresponde a 120 reales (arriba-
+        // izquierda). El origen debe espejarse a la izquierda.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(80);
-        await setAim(0, 160, 0);
+        await setAim(0, 240, 0);
         const snapLeft = window.__DS_EXT_HOOK__.snapshot();
+        assert('look=0 invierte la lectura vertical',
+          Math.abs(snapLeft.me.angAbs - 120) < 1e-6 && snapLeft.me.aimMirrored === true,
+          snapLeft.me);
         const targetLeft = insidePoint(snapLeft, { x: snapLeft.me.x - 250, y: snapLeft.me.y + 10 });
         selectButton.click();
         await wait(80);
@@ -377,16 +381,15 @@
           stateLeft.marker.x > 0 && stateLeft.marker.x < window.innerWidth,
           { marker: stateLeft && stateLeft.marker, area: areaLeft.toJSON() });
 
-        // El cañón puede leerse espejado respecto a la vertical (leer 60°
-        // cuando apunta a 120°). Manda el lado real del móvil: el apuntado se
-        // refleja y el origen se espeja a la izquierda.
+        // Lectura tendida a la izquierda: raw=200 -> 160 reales. Sigue siendo
+        // un tiro hacia la izquierda (coseno negativo) y el origen se espeja.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(80);
-        await setAim(0, 60, 0);
+        await setAim(0, 200, 0);
         const snapMirror = window.__DS_EXT_HOOK__.snapshot();
-        assert('apuntado espejado se alinea con look=0',
+        assert('look=0 tendido se alinea a la izquierda',
           snapMirror.me.look === 0 && snapMirror.me.aimMirrored === true &&
-          Math.abs(snapMirror.me.angAbs - 120) < 1e-6, snapMirror.me);
+          Math.abs(snapMirror.me.angAbs - 160) < 1e-6, snapMirror.me);
         const targetMirror = insidePoint(snapMirror,
           { x: snapMirror.me.x - 250, y: snapMirror.me.y + 10 });
         selectButton.click();
@@ -401,13 +404,13 @@
         assert('apuntado espejado: origen a la izquierda', mirroredLeft &&
           mirroredLeft.origin.x < snapMirror.me.x, mirroredLeft && mirroredLeft.origin);
 
-        // El mismo espejo con look=1 debe alinear el cañón a la derecha.
+        // Con look=1 no hay espejo: la lectura ya es el ángulo absoluto.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(80);
-        await setAim(1, 160, 0);
+        await setAim(1, 20, 0);
         const snapMirrorRight = window.__DS_EXT_HOOK__.snapshot();
-        assert('apuntado espejado se alinea con look=1',
-          snapMirrorRight.me.look === 1 && snapMirrorRight.me.aimMirrored === true &&
+        assert('look=1 usa la lectura directa',
+          snapMirrorRight.me.look === 1 && snapMirrorRight.me.aimMirrored === false &&
           Math.abs(snapMirrorRight.me.angAbs - 20) < 1e-6, snapMirrorRight.me);
         assert('apuntado espejado: origen a la derecha',
           snapMirrorRight.origin.x > snapMirrorRight.me.x, snapMirrorRight.origin);
@@ -415,10 +418,11 @@
         // Cerca de la vertical no hay señal horizontal fiable: manda `look`.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(80);
-        await setAim(0, 95, 0);
+        await setAim(0, 265, 0);
         const snapVertical = window.__DS_EXT_HOOK__.snapshot();
         assert('cerca de la vertical respeta look declarado',
-          snapVertical.me.look === 0 && snapVertical.me.lookSource === 'look',
+          snapVertical.me.look === 0 && snapVertical.me.lookSource === 'look' &&
+          Math.abs(snapVertical.me.angAbs - 95) < 1e-6,
           snapVertical.me);
         assert('origen espejado cerca de la vertical',
           snapVertical.origin.x < snapVertical.me.x, snapVertical.origin);

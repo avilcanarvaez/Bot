@@ -10,7 +10,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 14/14 y 40/40; validación live en curso. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 14/14 y 41/41; validación live en curso (v0.1.3). |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
@@ -107,9 +107,10 @@ out/            build (ignorado por git)
    - Confirmar: motor (Pixi?), URL del WS, opcodes, constantes (`398`, `2.34`, `485`),
      lectura de `ang`, viewport/CSP.
 2. Validar la extensión en partida real (destinos izquierda/derecha, `look=0/1`, `body ≠ 0`).
-   Ya corregido el espejo del apuntado con el lado real del móvil (§12 de la sesión y
-   §16.14 del diseño); falta confirmar en vivo que `ÁNGULO` pasa de 90° al apuntar a la
-   izquierda y que la línea `e0°` del panel se mantiene cerca de 0.
+   v0.1.3 corrige la **inversión vertical** del cañón (`look=0 → real = −raw`,
+   `look=1 → real = raw`); ver §13 de la sesión y §16.15 del diseño. Falta confirmar
+   en vivo, con un disparo a cada lado, que `ÁNGULO`, el dial del juego y la
+   trayectoria coinciden (el mensaje `play` publica `truth`/`raw` para compararlos).
 3. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---

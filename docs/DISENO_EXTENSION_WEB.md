@@ -545,9 +545,10 @@ real** y, si se desea, la **potencia actual**, usando §7 con AIRE = 0.
   es el eje `+x` del cañón ya transformado por `body` y por los espejos de la
   cadena de padres, así que `ang_abs = −atan2(b, a)` en grados matemáticos (Y
   hacia arriba); no se resta `body` ni se vuelve a espejar por `look`.
-  `angle.rotation` queda solo como respaldo si no hay `worldTransform`. Como el
-  espejo del sprite no siempre está en la matriz, el resultado se reconcilia con
-  `player.look` (`alignAimToLook`, §16.14).
+  `angle.rotation` queda solo como respaldo si no hay `worldTransform`. Con
+  `look=0` el contenedor está espejado en vertical, así que la lectura se
+  invierte (`real = −raw`); con `look=1` se usa tal cual
+  (`alignAimToLook`, §16.15).
 - **Potencia:** `#powerBar.style.width` (0–400) mientras se carga; tras el disparo,
   `#last_power_mark.style.left − 247`. Si no hay barra activa, barrido/rango si el
   usuario quiere ver varias potencias. Ver §16.11.
@@ -846,7 +847,7 @@ extension/
 - **Harness mock:** página con WebSocket falso y un `PIXI.Application` falso
   (canvas, cámara, `player_info.is_me`). Valida hook → auto-calibración →
   snapshot → overlay → clic → potencia → `room_state`.
-- **Resultado:** **40/40** (ampliado en §16.13 y §16.14); calibración `powerScale=2.3641`, `gravity=402`; panel
+- **Resultado:** **41/41** (ampliado en §16.13, §16.14 y §16.15); calibración `powerScale=2.3641`, `gravity=402`; panel
   `POTENCIA NECESARIA=166/400` para el destino de prueba; reset por `room_state`;
   selección por capa sin bloquear el ratón, destinos a izquierda/derecha con
   `look=0/1`, marcador de potencia y acoplamiento del panel fuera del canvas
@@ -1396,6 +1397,59 @@ producía los dos síntomas.
 alinea a 120° con origen a la izquierda y solución válida, y lectura espejada
 con `look=1` que se alinea a 20° con origen a la derecha. Resultado: **14/14**
 auto-calibración y **40/40** integración.
+
+> §16.14 quedó **incompleta**: el espejo no es horizontal (`180 − deg`) sino
+> vertical (`−deg`). Ver §16.15.
+
+### 16.15 Corrección definitiva del eje del cañón (2026-10-21, live)
+
+La comprobación visual en partida real (capturas del canvas y del dial que el
+juego dibuja alrededor del móvil) cerró el diagnóstico: con `look=0` y
+`raw=235°` el cañón apuntaba a **~135°**, no a 235°. La relación correcta es
+una **inversión vertical**, no un reflejo horizontal.
+
+**Por qué.** El nodo `player.angle` cuelga de un contenedor que se espeja en
+vertical cuando el móvil mira a la izquierda. Su `worldTransform` devuelve la
+dirección con el eje Y invertido:
+
+```
+raw  = 180 + ang + body        (look = 0)
+real = 180 − ang − body = −raw (mod 360)
+```
+
+Mirando a la derecha no hay espejo y la lectura ya es el ángulo absoluto:
+
+```
+real = raw                     (look = 1)
+```
+
+Evidencia en vivo:
+
+| caso | dato |
+| --- | --- |
+| `look=0`, `raw=235°`, `body=0` | dial del juego ~135° → `−235 ≡ 125` |
+| `look=0`, `raw=200°`, `ang` del cliente 20° | `180 − 20 = 160 = −200` |
+| `look=1`, `raw=24°` | rival a 28° → el cañón apuntaba al rival |
+| fixtures `look=0` (`ang=27/55/20`) | servidor `153/125/160 = 180 − ang` |
+| fixtures `look=1` (`ang=55`, `body=−17`) | servidor `72 = ang − body` |
+
+**Corrección aplicada (v0.1.3).**
+
+- `alignAimToLook(deg, look, source)` con `source === 'world'` devuelve
+  `−deg` si `look === 0` y `deg` si `look === 1`. Desaparece el umbral
+  `|cos| < 0,1`: la inversión es sistemática, no condicional.
+- La lectura de respaldo (`source === 'rotation'`, local, sin padre) conserva
+  la heurística anterior porque no permite componer el espejo.
+- El panel muestra el ángulo ya corregido; `aimMirrored` pasa a indicar que se
+  aplicó la inversión de `look=0`.
+- El mensaje `play` incluye `truth` (`s[2]` del servidor), `raw`, `aimSource` y
+  `look` en el mismo instante, para verificar la conversión en vivo sin abrir
+  DevTools.
+
+**Pruebas.** Casos de integración reescritos con lecturas reales:
+`look=0, raw=240 → 120`, `look=0, raw=200 → 160`, `look=1, raw=20 → 20`,
+`look=0, raw=265 → 95` (cerca de la vertical). Resultado: **14/14**
+auto-calibración y **41/41** integración.
 
 ---
 

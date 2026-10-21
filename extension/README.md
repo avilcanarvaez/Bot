@@ -48,8 +48,8 @@ El panel muestra:
 
 - `POTENCIA NECESARIA`: potencia `0..400` para el ángulo actual.
 - `ÁNGULO`: ángulo absoluto de salida (0° = derecha, 90° = arriba, 135° =
-  arriba-izquierda), leído de `angle.worldTransform` y reconciliado con el lado
-  real del móvil.
+  arriba-izquierda), leído de `angle.worldTransform` y convertido según el lado
+  real del móvil (`look=0` invierte el eje vertical).
 - `CALIBRACIÓN`: `FALLBACK` o `CALIBRADO (n)` con el número de muestras.
 - Línea de diagnóstico pequeña (`L0 · B-17° · R72° · θ72° · e0°`): lado, cuerpo,
   rotación cruda de Pixi, ángulo leído y error del último disparo real. Sirve
@@ -81,12 +81,12 @@ El ángulo de salida se obtiene de `player.angle.worldTransform`: la columna
 cadena de padres), y el ángulo matemático es `-atan2(b, a)`. No se resta `body`
 ni se vuelve a espejar por `look`.
 
-Esa lectura puede salir **espejada respecto a la vertical** (leer 60° cuando el
-cañón apunta a 120°): el espejo del sprite no siempre está en la matriz. Por eso
-`alignAimToLook` compara el signo horizontal del apuntado con `player.look` y,
-si no coinciden, refleja con `180° − ángulo`. El cañón nunca apunta detrás del
-móvil, así que el lado declarado es la referencia fiable. Cerca de la vertical
-(`|cos| < 0,1`) no se toca el valor. El origen del cañón espeja el offset local
+Con `look=0` el nodo del cañón cuelga de un contenedor espejado en vertical: el
+`worldTransform` devuelve la dirección con el eje Y invertido
+(`raw = 180 + ang + body`). Por eso `alignAimToLook` aplica `real = −raw` a la
+izquierda y `real = raw` a la derecha; la inversión es sistemática, no
+condicional. Comprobado en vivo contra el dial del juego y contra el ángulo que
+envía el servidor en `play` (`s[2]`). El origen del cañón espeja el offset local
 `(a, −c)` **antes** de rotar por `body` (`originFor`). Para considerar que hay partida,
 exige que `#Dragon2D` esté visible y que el `stage` contenga un jugador con
 `player_info.is_me`. El turno propio se lee de `#turn_line0`: la primera línea
@@ -142,7 +142,7 @@ test/auto-calibration.test.js
 El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **14/14**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **40/40**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+en **41/41**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
 clic`, trayectoria a izquierda y derecha, `look=0/1`, apuntado espejado que se
 alinea con el lado real (izquierda y derecha), marcador de potencia visible,
 reset por sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde

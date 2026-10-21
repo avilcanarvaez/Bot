@@ -240,7 +240,7 @@
     const aim = readAim(me);
     if (aim.deg == null) return;
     const truth = normalizeDeg((shot.look === 0 ? 180 - shot.ang : shot.ang) - shot.body);
-    const model = alignAimToLook(aim.deg, shot.look);
+    const model = alignAimToLook(aim.deg, shot.look, aim.source);
     lastAimCheck = {
       look: shot.look,
       body: shot.body,
@@ -287,6 +287,13 @@
         windX: result.delta.windX,
         gravityUpdated: result.delta.gravityUpdated,
       } : null,
+      // Diagnóstico en vivo: ángulo real del servidor (`s[2]`) junto a la
+      // lectura cruda del cañón en ese instante, para verificar la conversión.
+      truth: result.delta && Array.isArray(result.delta.s)
+        ? numberOr(result.delta.s[2], null) : null,
+      raw: me ? readAim(me).deg : null,
+      aimSource: me ? readAim(me).source : null,
+      look: me ? numberOr(me.look, null) : null,
     });
     postSnapshot();
   }
@@ -729,18 +736,32 @@
   }
 
   /**
-   * Reconcilia el apuntado con el lado real del móvil.
+   * Convierte la lectura del nodo del cañón al ángulo absoluto de salida.
    *
-   * El cañón de DragonBound nunca apunta detrás del móvil: si el móvil mira a
-   * la izquierda (`look=0`), la componente horizontal del ángulo debe ser
-   * negativa, y viceversa. Cuando la lectura de Pixi sale espejada respecto a
-   * la vertical (mismo seno, coseno cambiado) se refleja con `180 - ang`.
+   * El nodo del cañón (`me.angle`) cuelga de un contenedor que se espeja
+   * verticalmente cuando el móvil mira a la izquierda. Por eso el
+   * `worldTransform` de ese lado devuelve la dirección con el eje Y invertido:
    *
-   * Cerca de la vertical (|cos| < 0.1) no hay señal horizontal fiable y se
-   * deja el valor tal cual.
+   *     raw = 180 + ang + body   (look = 0)
+   *
+   * y el ángulo real (el que usa el servidor en `play`) es `ang + body` visto
+   * desde la izquierda, es decir:
+   *
+   *     real = 180 - ang - body = -raw   (mod 360)
+   *
+   * Mirando a la derecha no hay espejo y `raw` ya es el ángulo absoluto
+   * (`real = raw`). Comprobado en vivo: con look=1 y raw=24° el cañón apuntaba
+   * a 28° (el rival); con look=0 y raw=235° el dial del juego marcaba ~135°.
+   *
+   * Solo se aplica a la lectura `world`; la de respaldo (`rotation`) es local y
+   * no permite componer el espejo, así que se deja como estaba.
    */
-  function alignAimToLook(deg, look) {
-    if (deg == null || (look !== 0 && look !== 1)) return deg;
+  function alignAimToLook(deg, look, source) {
+    if (deg == null) return deg;
+    if (source === 'world') {
+      return normalizeDeg(look === 0 ? -deg : deg);
+    }
+    if (look !== 0 && look !== 1) return deg;
     const cos = Math.cos(deg * Math.PI / 180);
     if (Math.abs(cos) < 0.1) return deg;
     const pointsLeft = cos < 0;
@@ -978,7 +999,7 @@
     // `angAbs` es el ángulo absoluto de salida en coordenadas matemáticas
     // (Y hacia arriba), que es el que usa la física de §7.4. `aim.deg` es la
     // lectura cruda de Pixi y `angAbs` la versión reconciliada con `look`.
-    const angAbs = alignAimToLook(aim.deg, look);
+    const angAbs = alignAimToLook(aim.deg, look, aim.source);
     const aimMirrored = aim.deg != null && angAbs != null &&
       Math.abs(aim.deg - angAbs) > 0.5;
     const mobile = mobileNameOf(me) || 'unknown';
@@ -1001,6 +1022,7 @@
         y: meY,
         look: look,
         lookSource: lookInfo.source,
+        flip: typeof me.flip === 'boolean' ? me.flip : null,
         body: body,
         scaleX: me.scale ? numberOr(me.scale.x, null) : null,
         aimDeg: angAbs,
@@ -1113,6 +1135,48 @@
     return out;
   }
 
+  /**
+   * Árbol acotado del nodo propio para identificar qué hijo es el cañón.
+   * Solo para diagnóstico manual: no se publica en snapshots ni se versiona
+   * ningún frame de red.
+   */
+  function describeNode(node, depth) {
+    if (!node) return null;
+    const out = {
+      cls: node.constructor && node.constructor.name ? String(node.constructor.name) : null,
+      name: typeof node.name === 'string' ? node.name : null,
+      label: typeof node.label === 'string' ? node.label : null,
+      x: numberOr(node.x, null),
+      y: numberOr(node.y, null),
+      rotation: numberOr(node.rotation, null),
+      angle: numberOr(node.angle, null),
+      scaleX: node.scale ? numberOr(node.scale.x, null) : null,
+      visible: node.visible !== false,
+      flip: typeof node.flip === 'boolean' ? node.flip
+        : (numberOr(node.flip, null)),
+      look: numberOr(node.look, null),
+      lookBool: typeof node.look === 'boolean' ? node.look : null,
+      bodyAngle: numberOr(node.body_angle, null),
+      isMe: !!(node.player_info && node.player_info.is_me),
+      keys: Object.keys(node).slice(0, 40),
+    };
+    const wt = node.worldTransform;
+    if (wt) {
+      out.wt = {
+        a: numberOr(wt.a, null),
+        b: numberOr(wt.b, null),
+        deg: Math.round(normalizeDeg(-Math.atan2(wt.b, wt.a) * 180 / Math.PI) * 10) / 10,
+      };
+    }
+    if (depth > 0 && node.children) {
+      out.children = [];
+      for (let i = 0; i < node.children.length && i < 40; i++) {
+        out.children.push(describeNode(node.children[i], depth - 1));
+      }
+    }
+    return out;
+  }
+
   // Debug acotado para pruebas manuales. No incluye frames ni tokens.
   window.__DS_EXT_HOOK__ = {
     snapshot: snapshot,
@@ -1151,6 +1215,11 @@
         stage: nodeDebug(app && app.stage),
         canvas: app ? canvasInfo(app) : null,
       };
+    },
+    tree: function () {
+      const app = appWithMe() || pixiApp;
+      const me = app && app.stage ? findMeIn(app.stage) : null;
+      return describeNode(me, 3);
     },
   };
 

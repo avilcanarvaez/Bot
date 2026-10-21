@@ -580,3 +580,51 @@ del panel: apuntando al rival de la izquierda, `ÁNGULO` marcaba **50–70°**.
 - **Pendiente:** recargar en Brave y confirmar en partida real que, apuntando a
   la izquierda, `ÁNGULO` pasa de 90° y que `e0°` del último disparo queda cerca
   de 0.
+
+## 13. Cierre del apuntado: inversión vertical del cañón (2026-10-21, v0.1.3)
+
+§12 no bastó: en la partida real el tiro a la izquierda seguía mal. Esta vez se
+validó **contra el cliente**, no solo contra el Pixi falso.
+
+### Cómo se midió
+
+- Brave del usuario con `--remote-debugging-port=9222`; se movió el ratón con
+  `Input.dispatchMouseEvent` (eventos trusted) y se leyó el snapshot en vivo.
+- Se capturó el canvas con `Page.captureScreenshot` para **ver** el cañón y el
+  dial que dibuja el juego alrededor del móvil.
+- Se añadió `tree()` al hook para volcar el subárbol Pixi del jugador
+  (`me → body → angle`), sin publicar frames ni tokens.
+
+### Hallazgo
+
+Con `look=0` y `aimRaw=235°`, el dial del juego marcaba **~135°**. La relación
+no es un reflejo horizontal (`180 − deg`) sino una **inversión vertical**
+(`−deg`):
+
+```
+raw  = 180 + ang + body        (look = 0)
+real = 180 − ang − body = −raw (mod 360)
+```
+
+Con `look=1` no hay espejo y `real = raw`. Confirmado con:
+
+- `look=0`, `raw=200°` ↔ `ang` del cliente 20° → real 160°.
+- `look=1`, `raw=24°` y rival a 28° → el cañón apuntaba al rival.
+- Fixtures del servidor: `look=0` → `180 − ang`; `look=1` → `ang − body`.
+
+### Cambios (v0.1.3)
+
+- `alignAimToLook(deg, look, source)`: con `source='world'` devuelve `−deg` si
+  `look=0` y `deg` si `look=1`. Se elimina el umbral `|cos| < 0,1` (la inversión
+  es sistemática). La lectura `rotation` mantiene la heurística anterior.
+- El mensaje `play` publica `truth` (`s[2]`), `raw`, `aimSource` y `look` del
+  mismo instante, para verificar la conversión sin DevTools.
+- `tree()` en el hook, solo para diagnóstico manual.
+
+### Verificación
+
+- Auto-calibración **14/14**; integración **41/41** con lecturas reales
+  (`look=0, raw=240 → 120`; `look=0, raw=200 → 160`; `look=1, raw=20 → 20`;
+  `look=0, raw=265 → 95`).
+- **Pendiente:** confirmar en partida real con un disparo que `ÁNGULO` y la
+  trayectoria coinciden con el dial para ambos lados.
