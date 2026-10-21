@@ -1,6 +1,8 @@
 # Diseño: Extensión de navegador para DragonBound (juego web)
 
-> Documento de diseño y plan de implementación. **No incluye código todavía.**
+> Documento de diseño y plan de implementación. La extensión MV3 está
+> implementada en `extension/` (hook, overlay, auto-calibración y pruebas); queda
+> la validación live G–O y la auditoría CSP/SRI/ToS.
 > Objetivo: reemplazar el enfoque de captura de escritorio (app Java) por una
 > extensión MV3 que se integra con el juego web y lee su estado real.
 
@@ -17,17 +19,34 @@ es el vehículo correcto:
   (sin `Robot`, sin DPI, sin exclusión de captura, sin JNA, multiplataforma).
 - El **estado real** (ángulo, potencia, posición, turno, viento) se obtiene de la
   **red (WebSocket)** y del **runtime del cliente** (Pixi), no por visión artificial.
-- La física se puede **replicar exactamente** porque las constantes del servidor
-  están en el repo (`weight = 398`, escala de potencia `×2.34`, divisor `485`), y
-  con **AIRE = 0** la trayectoria es balística pura.
+- La física se puede **replicar** con el modelo del remake (`weight = 398`, escala
+  de potencia `×2.34`, divisor `485`) y, para producción, con un **perfil
+  auto-calibrado** desde `play`: la escala inicial es `v0 = power × 2.269`,
+  gravedad `390`, tiempo en **segundos** y origen de **Armor** `(20.45, -25.83)`
+  rotado por `body` (§7.4 y §16.9). La captura del **2026-10-20** en la sala 44
+  midió `v0/power = 2.364` y `s[5] = 402`, por lo que la extensión recalibra en
+  runtime con `game_shoot.power` + `play.s[3]/s[5]` (§16.12). Con **AIRE = 0** la
+  trayectoria es balística pura.
+- La selección de **origen/destino** es interactiva: botón **Seleccionar
+  destino** + clic normal sobre una capa encima del canvas, o `Ctrl + clic
+  izquierdo/derecho` como atajo; el origen es el cañón del móvil propio, el
+  destino es un punto de mundo y se dibuja la trayectoria + la marca de potencia
+  (§8.2).
+
+> **Decisión de la primera versión (v1):** el viento se maneja como **0**
+> (`AIRE = 0`). La extensión puede leer `wind_power`/`wind_angle` para diagnóstico,
+> pero la física, `SIMULAR` y el asistente **no corrigen por viento** en esta
+> versión. Ver §7.3.
 
 El proyecto Java de captura **no se descarta formalmente** en este documento: queda
-como respaldo hasta validar la extensión contra el juego real (ver §15).
+como respaldo hasta completar la validación de la extensión (protocolo, física live
+y Pixi verificados; validación live G–O y restricciones pendientes) (ver §15).
 
 > **Importante:** la evidencia de §1 proviene del **remake** `DragonBoundR/DragonBound`,
-> no del juego en producción. La verificación contra el sitio real
-> `https://dragonbound.net/` es un paso **bloqueante** y está documentada en **§16**
-> (desde este equipo el sitio está bloqueado / responde 403).
+> no del juego en producción. La verificación live contra `https://dragonbound.net/`
+> se realizó el **2026-10-20** y se resume en **§1.2**, **§16.8**, **§16.9** y
+> **§16.10**. El protocolo, los opcodes (con variantes por servidor), la física live
+> y Pixi quedaron confirmados; las restricciones siguen pendientes.
 
 ---
 
@@ -66,6 +85,31 @@ separado** (ver §16). Mientras eso no ocurra, en este documento se usa el marca
 - `⚠ producción` = **pendiente de verificar** en `dragonbound.net`.
 
 Ninguna afirmación sobre el sitio real se da por buena sin pasar el checklist de §16.3.
+La captura del **2026-10-20** cubre el transporte y los opcodes; lo que sigue
+pendiente se marca explícitamente.
+
+### 1.2 Verificación live (2026-10-20)
+
+Se abrió `https://dragonbound.net/` en un navegador real y se jugó una partida
+**1 vs 1** en el servidor **6 (`Bunge`)** con una captura pasiva de WebSocket:
+148 frames (80 enviados, 65 recibidos), 5 disparos.
+
+| Hallazgo | Evidencia live |
+|---|---|
+| Transporte | `wss://s3qu3nc3dis0rdred.dragon.ws/6`, handshake HTTP 101 (nginx). |
+| Ofuscación de aplicación | XOR de un byte: cliente → servidor `0xA5`; servidor → cliente `0xDB`. WSS sigue siendo TLS. |
+| Framing | Primer byte de opcode + payload textual/JSON-like; **no** es simplemente `JSON.stringify([opcode, ...])`. |
+| Disparo | Campos `x,y,body,look,ang,power,time,selectedShot,extra` confirmados. Opcode **variable**: `0x07` (server 6) / `0x3A` (server 5). |
+| Turno | `play` es `0x06`; `room_state` `0x05`; `update` `0x0B`; resultado `0x0D`. |
+| Movimiento | `game_move` `0x06` (server 6); en server 5 se observó `0x05` para actualizaciones de apuntado. |
+| Viento | `play` expone `wind_power` (índice 13) y el ángulo (índice 14); el mapeo de §5.3 es consistente. |
+| Cliente | El HTML live no carga `1023989.js`; usa un script inline ofuscado (~202 KB). |
+| Runtime | **Pixi.js** confirmado; `window.PIXI` se borra tras cargar. El jugador propio se localiza por `PlayerInfo-*.is_me` en `PlayerContainer-*` (§16.10). |
+
+Pendiente de verificar en producción: las restricciones (CSP/SRI/ToS), la
+correlación del ángulo Pixi con `game_shoot` y la validación dentro de la extensión.
+La **física live** ya está calibrada (§7.4/§16.9); el protocolo, la física y Pixi
+están confirmados.
 
 ---
 
@@ -97,10 +141,10 @@ Ninguna afirmación sobre el sitio real se da por buena sin pasar el checklist d
  │  │  • lee player.ang/x/y     │ ◀─────── │  • botón SIMULAR        │  │
  │  └───────────────────────────┘ postMsg  └─────────────────────────┘  │
  │             │                                    │                   │
- │             │ WebSocket (ws://host:9001)         │ chrome.runtime    │
+ │             │ WebSocket (wss://…/6)              │ chrome.runtime    │
  └─────────────┼────────────────────────────────────┼───────────────────┘
                ▼                                    ▼
-      Servidor de juego Node               Service worker (extensión)
+      Servidor de juego (nginx)            Service worker (extensión)
       (autoridad: turno, viento)           • estado/opciones, storage
 ```
 
@@ -109,13 +153,15 @@ Ninguna afirmación sobre el sitio real se da por buena sin pasar el checklist d
 | Componente | Contexto | Responsabilidad |
 |---|---|---|
 | `manifest.json` | — | MV3, `content_scripts` con `"world": "MAIN"` y `"world": "ISOLATED"`, `host_permissions` del origen del juego. |
-| `inject/page-hook.js` | MAIN | Hooks de `WebSocket` y captura de `window.PIXI`; publica estado por `window.postMessage`. |
-| `content/content.js` | ISOLATED | Puente de mensajes, monta el overlay, dibuja, gestiona `SIMULAR`. |
-| `overlay/overlay.js` + CSS | ISOLATED (DOM) | Canvas/DOM superpuesto al viewport del juego. |
-| `core/physics.js` | ISOLATED | Balística con **AIRE=0** (misma matemática que el servidor). |
-| `core/state.js` | ISOLATED | Estado de sesión, sincronización, staleness. |
-| `background/service-worker.js` | SW | Persistencia de opciones, badge de estado. |
-| `popup/`, `options/` | UI | Configuración: origen, offset de cañón, modelo de aire (fijo 0), depuración. |
+| `src/page-hook.js` | MAIN | Hooks de `WebSocket` y captura de `window.PIXI`; publica snapshots/eventos por `window.postMessage`. |
+| `src/content.js` | ISOLATED | Recibe snapshots, monta el overlay en Shadow DOM, dibuja, gestiona la selección (botón + capa o `Ctrl + clic`) y la solución de potencia. |
+| `src/auto-calibration.js` | MAIN | Módulo puro de física/calibración; lo usa `page-hook.js`. |
+| `src/background.js` | Service worker | El icono muestra/oculta el panel de página; no hay `default_popup`. |
+
+> **MVP actual:** no hay `overlay.css` ni `core/` separados. La balística AIRE=0
+> y la proyección viven en `content.js`; el estado de red y Pixi vive en
+> `page-hook.js`. `SIMULAR` todavía no existe como botón. El service worker solo
+> reenvía el clic del icono; el panel es una ventanita persistente en la página.
 
 ### 3.2 Mensajería entre contextos
 
@@ -124,7 +170,7 @@ MAIN → ISOLATED por `window.postMessage` con un esquema fijo (prefijo propio):
 ```jsonc
 // page-hook → content
 { "src": "dragonshot", "type": "hello",  "data": { "hasWebSocket": true, "hasPixi": true } }
-{ "src": "dragonshot", "type": "send",   "data": { "opcode": 1, "args": [/* game_shoot */], "t": 1710000000 } }
+{ "src": "dragonshot", "type": "send",   "data": { "opcode": 7, "args": [/* game_shoot */], "t": 1710000000 } }
 { "src": "dragonshot", "type": "recv",   "data": { "opcode": 6, "args": [/* play */],       "t": 1710000000 } }
 { "src": "dragonshot", "type": "aim",    "data": { "ang": 63, "power": 240, "x": 512, "y": 721, "body": 4, "look": 0, "mine": true } }
 { "src": "dragonshot", "type": "turn",   "data": { "turn": 2, "me": 0, "players": [/* … */] } }
@@ -133,6 +179,12 @@ MAIN → ISOLATED por `window.postMessage` con un esquema fijo (prefijo propio):
 `content` envía comandos a MAIN (p. ej. pedir un `aim` bajo demanda) con el mismo
 canal y `src:"dragonshot-cmd"`.
 
+> **Implementación actual:** los mensajes usan
+> `{ source:'dragonshot-ext', type:'snapshot'|'game-shoot'|'play'|'room-state'|'pixi-ready'|'ws-open'|'ws-close' }`
+> y el overlay responde con `{ source:'dragonshot-overlay', type:'get-snapshot' }`.
+> No se envía ningún frame crudo ni token; solo el disparo parseado, el perfil y
+> el snapshot de Pixi.
+
 ---
 
 ## 4. Fuente del estado
@@ -140,27 +192,39 @@ canal y `src:"dragonshot-cmd"`.
 ### 4.1 Red (autoridad) — hook de WebSocket
 
 Interceptar `window.WebSocket` en `document_start` (mundo MAIN) **antes** de que el
-bundle lo capture (`1023989.js:51353`). Envolver:
+cliente cree el socket. En producción el cliente es un script inline ofuscado, así
+que el hook no debe depender de `1023989.js`. Envolver:
 
-- `WebSocket.prototype.send` → `JSON.parse(datos)` → emitir `type:"send"` con `{opcode, args}`.
-- El canal de recepción: el cliente asigna `ws.onmessage`; se redefine el setter o se envuelve para parsear igual que `DragonSocket` (`d[0]` = opcode, resto = args).
+- `WebSocket.prototype.send` → aplicar XOR `0xA5`, separar el primer byte (opcode) y
+  parsear el payload textual/JSON-like.
+- Recepción: envolver `onmessage`/`addEventListener`; aplicar XOR `0xDB` y parsear
+  igual. No asumir `JSON.stringify([opcode, ...])`: el live usa un framing propio.
 
-Opcodes de interés (ver §5 para detalles): `game_shoot(1)`, `game_move(6)`,
-`started_to_shoot(60)`, `look(61)` enviados; `play(6)`, `room_state(5)`,
-`game_start(7)`, `update(11)`, `started_to_shoot(60)`, `look(61)` recibidos.
+Opcodes confirmados en vivo (2026-10-20): `game_shoot(7)`, `game_move(6)`,
+`play(6)`, `room_state(5)`, `update(11)`, resultado `(13)`. Los opcodes
+`started_to_shoot(60)`/`look(61)` no se observaron en esta captura y quedan
+pendientes. Ver §1.2 y §5.
 
 ### 4.2 Runtime del cliente (tiempo real) — captura de Pixi
 
-`window.PIXI` se expone y luego se borra (`16156-16157`). En `document_start`
-definimos un **accesor** en `window.PIXI` que:
+`window.PIXI` se expone y luego se borra (`16156-16157`). Por eso, en la extensión
+se instala un **accesor** en `window.PIXI` desde `document_start` (mundo MAIN) que:
 
-1. Guarda la referencia en una variable del script de hook (`__dsPIXI`).
-2. Deja que `delete window.PIXI` funcione (propiedad `configurable: true`).
+1. Guarda la referencia en una variable del hook (`__dsPIXI`).
+2. Envuelve `PIXI.Application` (y, si existe, `PIXI.Renderer`) para conservar la
+   instancia y su `stage`.
+3. Deja que `delete window.PIXI` funcione (propiedad `configurable: true`).
 
-Con la referencia a Pixi se recorre el escenario para localizar el contenedor del
-jugador propio y leer en vivo: `ang`, `x`, `y`, `body`, `look` (y `is_me`). En modo
-2D el jugador es `CPlayer`; en modo Pixi/3D es `Player2`/`PlayerContainer`
-(`ChangeAngle :55195`, `ChangeBodyAngle :55191`).
+**Confirmado en vivo (2026-10-20):** el cliente usa **Pixi.js**. Con el juego en
+marcha, `window.PIXI` ya no existe, pero se puede recuperar el `InteractionManager`
+depositando un breakpoint en su handler `onMouseOut`/`onMouseMove` y leyendo `this`;
+`this.stage` es el `Stage` de Pixi y `stage.interactionManager` es el propio
+`InteractionManager`. El `stage` permite recorrer los `PlayerContainer-*` y leer
+`x`, `y`, `look`, `body_angle`, `angle.rotation` y `player_info.is_me`.
+
+En la extensión no se usará el breakpoint (es solo una técnica de diagnóstico): el
+hook de `document_start` captura Pixi antes de que el cliente lo borre y conserva
+la instancia de `Application`/`InteractionManager` para leer el stage en cada frame.
 
 **Riesgo/plan B:** si el recorrido del stage no fuera estable, el ángulo en vivo se
 toma del último `game_shoot` (al disparar) y, como último recurso, de visión in-page
@@ -168,7 +232,16 @@ sobre el canvas (§11.4).
 
 ### 4.3 Identificación del jugador propio y del turno
 
-- `my_player_info(1)` / `game_start(7)` identifican tu `position`/`my_player_index`.
+- **Confirmado en vivo (2026-10-20):** el jugador propio se identifica por
+  `PlayerInfo-<nombre>.is_me === true`, y el `PlayerContainer-<nombre>.player_info`
+  apunta a ese mismo `PlayerInfo`. No depender de índices del árbol: se añaden y
+  quitan joyas, almas (`PlayerContainer-soul`) y efectos.
+- El `PlayerContainer` propio expone `x`, `y` (mundo), `look` (0/1), `body_angle`
+  (grados) y `angle.rotation` (radianes, ángulo de apuntado). El turno está en
+  `PlayerInfo.is_turn`.
+- `my_player_info(1)` (observado en live) identifica tu `position`/`my_player_index`;
+  `game_start(7)` no se observó en la captura y no debe confundirse con el
+  `game_shoot(7)` cliente → servidor.
 - `play(6)` incluye `next_turn_number`, la posición del jugador y la del siguiente
   (`message.js:431-451`).
 - Solo se dibuja trayectoria cuando `turn == my_player_number` (o en modo
@@ -180,24 +253,32 @@ sobre el canvas (§11.4).
 
 ### 5.1 Opcodes relevantes (`src/game/gametypes.js`)
 
-| Cliente → servidor (envía) | Valor | Uso en la extensión |
-|---|---|---|
-| `game_shoot` | 1 | Ángulo y potencia **reales** del disparo. |
+| Cliente → servidor (envía) | Valor live | Uso en la extensión |
+|---|---:|---|
+| `game_shoot` | **7** | Ángulo y potencia **reales** del disparo. |
 | `game_move` | 6 | Movimiento del jugador (posición/look/ángulo). |
-| `started_to_shoot` | 60 | El jugador empezó a apuntar. |
-| `look` | 61 | Cambio de dirección. |
+| `started_to_shoot` | ⚠ | El jugador empezó a apuntar; no observado. |
+| `look` | ⚠ | Cambio de dirección; no observado. |
 
-| Servidor → cliente (recibe) | Valor | Uso |
-|---|---|---|
+| Servidor → cliente (recibe) | Valor live | Uso |
+|---|---:|---|
 | `room_state` | 5 | `max_wind`, mapa, modo, etc. |
 | `play` | 6 | Turno, posiciones, viento, clima, thor. |
-| `game_start` | 7 | Arranque de partida. |
+| `game_start` | ⚠ | No observado en la captura. |
 | `update` | 11 | Actualizaciones de estado. |
-| `started_to_shoot` / `look` | 60 / 61 | Apuntado/dirección de otros jugadores. |
+| `result` | 13 | Resultado de la partida (`won`, scores, chat). |
+
+> **No reutilizar los valores del remake para producción.** En el remake
+> `game_shoot` era `1`; en el sitio live es `7`. La dirección importa: el `7`
+> observado es cliente → servidor (disparo), no el `game_start` del servidor.
 
 ### 5.2 `game_shoot` (cliente → servidor)
 
 `ds.Send(CLIENT_OPCODE.game_shoot, x, y, body, look, ang, power, time, type, extra)`
+
+**Confirmado en la captura live (2026-10-20).** El opcode es **variable** (`0x07`
+en server 6; `0x3A` en server 5). El orden de campos coincide con el remake;
+`extra` es la secuencia de apuntado/touch, **no** la trayectoria balística.
 
 | Pos | Campo | Significado |
 |---|---|---|
@@ -205,7 +286,7 @@ sobre el canvas (§11.4).
 | 2 | `body` | Inclinación del terreno en la posición del jugador (grados). |
 | 3 | `look` | `0 = izquierda`, `1 = derecha`. |
 | 4 | `ang` | Ángulo del cañón (grados, 0–180 en pantalla Y-abajo). |
-| 5 | `power` | Potencia de la barra (**0–400**). |
+| 5 | `power` | Potencia de la barra (**0–400**; `#powerBar.style.width`, §16.11). |
 | 6 | `time` | Tiempo de carga (para `time*10` ms de retardo, `game.js:500`). |
 | 7 | `selectedShot` | Tipo de disparo. |
 | 8 | `extra` | Datos extra (touch/animación). |
@@ -235,6 +316,17 @@ sobre el canvas (§11.4).
 Campos que usa la extensión: `player.x/y`, `player.look`, `next_turn_number`,
 `nextplayer.position`, y **`wind_power`/`wind_angle`** (leídos; ignorados por AIRE=0).
 
+Muestra live (2026-10-20):
+
+```
+[2, 0, 1273, 164, 0, 500, 1, [], 1076, -334, -2, 0, -1, 14, 2, [...]]
+```
+
+- `wind_power = 14` (índice 13).
+- `wind_angle + 180 = 2` (índice 14).
+- En la partida capturada `wind_power` varió entre 13 y 15.
+- El mapeo coincide con el contrato de arriba; **para v1 se ignora** y la física usa AIRE=0.
+
 ### 5.4 `room_state` — `message.js:39-...`
 
 Incluye `max_wind` (índice 9), `game_mode`, `map`, `turn_time`, etc.
@@ -251,6 +343,17 @@ Se distinguen cuatro espacios (todos presentes en el cliente):
 | **Viewport** | contenedor `#gameui` (CSS px locales) | El overlay se ancla aquí. |
 | **Canvas/Pixi** | canvas del render (modo Pixi/3D) | `worldTransform` de la cámara. |
 | **Pantalla** | página del navegador | Solo para eventos; **no** se usa para la física. |
+
+**Confirmado en vivo (2026-10-20):** canvas de **1257×943**. `zoom = 1.5716667`
+(`root.children[0].scale.x`) y `camera` es la posición del contenedor de mundo
+(padre de los `PlayerContainer-*`), `(64.57, 194.09)` en la muestra. La
+transformación es:
+
+`screen = zoom * (world + camera)`
+
+Verificado con `PlayerContainer.worldTransform` (`tx = 1347.81`, `ty = 490.50` para
+`world = (793, 118)`). La inversa es `world = screen / zoom - camera`. La cámara se
+mueve; hay que leerla en cada frame, no fijarla.
 
 **Estrategia de alineación del overlay:**
 
@@ -269,10 +372,12 @@ transformación vigente.
 
 ---
 
-## 7. Física con AIRE = 0 (exacta del juego)
+## 7. Física con AIRE = 0 (modelo repo + calibración live)
 
-El servidor construye el disparo en `src/game/game.js:436-547` y simula en
-`src/game/lib/shoot.js`. Con **AIRE = 0** (sin viento) se replica sin calibración:
+El servidor del **remake** construye el disparo en `src/game/game.js:436-547` y
+simula en `src/game/lib/shoot.js`. Esas fórmulas y constantes son la referencia
+`↩ repo`; **no son las de producción**. Para producción usar §7.4. Con
+**AIRE = 0** (sin viento) la trayectoria es balística pura en ambos modelos.
 
 ### 7.1 Transformaciones de entrada (servidor)
 
@@ -321,12 +426,104 @@ y(t) = origen.y - sin(ang°) * power_srv * (t/485) + 398 * (t/485)² / 2
 > (`shoot.js:263-284`) modifica `friccion` y `weight`. Con `wind_power = 0` ambos
 > quedan en sus valores base, por lo que **AIRE = 0 ⇒ `friccion = 0`**.
 
+> **Producción:** las constantes `398 / 2.34 / 485` y los offsets `dis / dy` son
+> del **remake**. La captura live del 2026-10-20 midió otras constantes y otra
+> unidad de tiempo; ver §7.4. **No mezclar ambos modelos** en el mismo perfil.
+
 ### 7.3 Extensibilidad del aire
 
 `core/physics.js` expondrá una interfaz `DragModel` con una única implementación
 activa `NO_AIR` (AIRE = 0). Un modelo futuro (viento/arrastre) implementaría el
 equivalente de `setWindEfect` sin tocar el resto del sistema. **La UI mantiene AIRE
 fijo en 0** y no se implementa arrastre en esta fase.
+
+> **Decisión v1:** el viento se maneja como **0**. Aunque `play` trae
+> `wind_power`/`wind_angle` y se puedan leer para diagnóstico, `SIMULAR`, el
+> asistente de potencia y el overlay usan **AIRE = 0**. No se corrige por viento en
+> esta primera versión del app.
+
+### 7.4 Calibración live (producción, 2026-10-20)
+
+La captura del **servidor 5, sala 48**, con **Armor** y **Metamine**, contiene 8
+disparos. El viento no se pudo mantener en 0: en los dos primeros turnos el
+`wind_power` del siguiente turno era `0`; después subió a `50` y bajó
+`49, 48, …, 42`. Los dos primeros disparos tienen `s[4]=0` (viento 0 real); el
+resto tiene viento. Aun así, el mensaje `play` trae el **resultado físico del
+servidor**, que permite calibrar sin depender de una sala sin viento.
+
+En `play` (índice 15), cada resultado incluye:
+
+```jsonc
+{
+  "s": [x0, y0, ang_abs, v0, windX, vertAccel],
+  "i": 0, "e": 0,
+  "time": 2050,                 // tiempo de vuelo en ms
+  "h": [664, 31, 60, 40],       // rectángulo de impacto
+  "d": [{ "n": 1, "hp": 900 }]  // daño (si hubo impacto)
+}
+```
+
+Constantes medidas (8 disparos; `power` es la potencia 0–400 del cliente):
+
+| Magnitud | Live (producción) | Remake |
+|---|---:|---:|
+| Escala de potencia `v0/power` | **2.269** (fallback; la sala 44 midió **2.364**) | 2.34 |
+| Gravedad base con viento 0 | **390** (fallback; la sala 44 midió **402**) | 398 |
+| Unidad de tiempo | **segundos** (`time/1000`) | `t/485` |
+| Origen Armor `(a, c)` local | **(20.45, 25.83)**, medido con `look=1` | `dis/dy` del repo |
+
+> **Auto-calibración (2026-10-20):** `2.269 / 390` es el **valor inicial**, no una
+> constante universal. La captura posterior en la sala 44, también `NORMAL`, mapa
+> 9 y `max_wind=0`, dio `v0/power = 2.364` y `s[5] = 402` en cuatro disparos
+> `look=0/body=0`. Ni `room_state` ni `game_start` declaran física, así que la
+> extensión recalibra desde `play` (§16.12).
+
+El ángulo absoluto es `ang_abs = ang - body` (después del espejo por `look`), y el
+origen se obtiene rotando el offset local por `body`:
+
+```text
+θ  = radians(body)
+dx = 20.45·cos(θ) + 25.83·sin(θ)
+dy = 20.45·sin(θ) − 25.83·cos(θ)
+x0 = player.x + dx
+y0 = player.y + dy
+```
+
+> Los 8 disparos de la calibración se hicieron con `look=1` (mirando a la
+> derecha). La captura posterior de la sala 44 confirmó el espejo `look=0` con
+> cuatro disparos: el servidor envió `s=[911,−13,153,461,0,402]` para un jugador
+> en `(931,13)`, que corresponde al offset Armor espejado `(−20.45,−25.83)`
+> (§16.12).
+
+Trayectoria live (coordenadas de pantalla, Y hacia abajo), con `t = time/1000`:
+
+```text
+x(t) = x0 + v0·cos(ang_abs)·t + 0.5·windX·t²
+y(t) = y0 − v0·sin(ang_abs)·t + 0.5·vertAccel·t²
+```
+
+- **AIRE = 0 (v1):** `windX = 0`, `vertAccel = perfil.gravity` (fallback `390`,
+  auto-calibrado desde `s[5]` cuando `s[4] === 0`; §16.12).
+- `s[4]` y `s[5]` son la aceleración horizontal del viento y la aceleración
+  vertical efectiva (gravedad + componente vertical del viento). Se leen solo
+  para diagnóstico; v1 no los usa.
+- `game_shoot.time` es el tiempo de carga del disparo; **no** es el tiempo de
+  vuelo. El tiempo de vuelo es `play[15].time`.
+- `s` llega **después** del disparo: sirve para calibrar y verificar, no para
+  predecir antes de disparar. Para `SIMULAR` se usan las constantes y el estado
+  actual.
+
+Verificación: con `s` y `time` se predice el impacto y se compara con `h`. En los
+8 disparos la diferencia fue de aproximadamente 1–4 px (el rectángulo de impacto
+tiene 60×40 px). En **esa captura**, los dos disparos con viento 0 confirmaron
+la gravedad `390` y la escala `2.269`; los otros seis validaron la fórmula con
+viento. La captura posterior de la sala 44 dio `2.364/402`, por eso esos valores
+quedan como fallback y el perfil se auto-calibra (§16.12). Detalle en §16.9.
+
+> **Opcodes:** el disparo no tiene el mismo opcode en todos los servidores. En el
+> servidor 6 se observó `0x07`; en el servidor 5, `0x3A` (ASCII `:`). El hook no
+> debe hardcodear `0x07`: debe detectar el disparo por la forma del payload o usar
+> un perfil por servidor.
 
 ---
 
@@ -336,10 +533,15 @@ fijo en 0** y no se implementa arrastre en esta fase.
 real** y, si se desea, la **potencia actual**, usando §7 con AIRE = 0.
 
 - **Origen:** `origen` del cañón (§7.1) desde `player.x/y`, `body`, `look`, móvil.
-- **Ángulo:** `player.ang` en vivo (Pixi) o el `ang` del último `game_shoot`.
-- **Potencia:** la de la barra en vivo, o un barrido/rango si el usuario quiere ver
-  varias potencias.
+  Por defecto es automático; el usuario puede fijarlo con `Ctrl + clic derecho`
+  (§8.2).
+- **Ángulo:** `PlayerContainer.angle.rotation` (radianes) en vivo; fallback al `ang`
+  del último `game_shoot`. La equivalencia exacta se valida al disparar (§16.10).
+- **Potencia:** `#powerBar.style.width` (0–400) mientras se carga; tras el disparo,
+  `#last_power_mark.style.left − 247`. Si no hay barra activa, barrido/rango si el
+  usuario quiere ver varias potencias. Ver §16.11.
 - **Dibujo:** proyección mundo → viewport (§6), como polilínea/puntos sobre el overlay.
+  La trayectoria solución se calcula con el destino marcado por el usuario (§8.2).
 - **Fin de trayectoria:** hasta colisión con el terreno del mapa (`IsPixel`/`GetUnder`
   del cliente) o un `t` máximo.
 
@@ -353,22 +555,27 @@ La barra del juego solo muestra la potencia **actual**; el usuario no sabe cuán
 necesita para dar al rival. El asistente resuelve la **balística inversa** (§7 con
 AIRE = 0) y muestra el dato explícito.
 
-Definiciones: `N = 485`, `θ` = ángulo efectivo (espejo por `look` y `body` ya
-aplicados), `W = 398`, `Δx = xt − x0`, `Δy = yt − y0`, `τ = t / N`.
+Definiciones live (producción, §7.4): `N = 1000` (ms → s), `θ` = ángulo efectivo
+(espejo por `look` y `body` ya aplicados), `W = perfil.gravity` (fallback `390`),
+`v0 = P_cliente × perfil.powerScale` (fallback `2.269`), `Δx = xt − x0`,
+`Δy = yt − y0`, `τ = t / N` (segundos).
 
 **Potencia necesaria (con el ángulo actual):**
 
 ```
 K         = Δx / cos(θ)
 τ         = sqrt( 2 * (Δy + sin(θ) * K) / W )
-P_srv     = K / τ
-P_cliente = P_srv * 100 / 234        // 0..400, la unidad de la barra
+v0        = K / τ
+P_cliente = v0 / perfil.powerScale   // 0..400, la unidad de la barra
 ```
 
-**Ángulo necesario (con la potencia actual):** con `P_srv = P_cliente * 234 / 100` y
-`u = Δx / P_srv`, se resuelve `s = tan(θ)` en
-`(W·u²/2)·s² − (P_srv·u)·s + (W·u²/2 − Δy) = 0`, eligiendo la raíz de ángulo alto
+**Ángulo necesario (con la potencia actual):** con `v0 = P_cliente × perfil.powerScale`
+y `u = Δx / v0`, se resuelve `s = tan(θ)` en
+`(W·u²/2)·s² − (v0·u)·s + (W·u²/2 − Δy) = 0`, eligiendo la raíz de ángulo alto
 según `look`.
+
+> Para el **remake**, sustituir por `N = 485`, `W = 398` y
+> `v0 = P_cliente × 2.34`. No mezclar perfiles.
 
 **Presentación:**
 
@@ -381,8 +588,145 @@ según `look`.
 - Si no hay solución real (discriminante negativo o fuera de `[0, 400]`), mostrar
   **"inalcanzable"** en lugar de un número inventado.
 
-El objetivo lo fija el usuario marcando al rival (o un punto del mapa); el asistente
-indica la potencia (o el ángulo) para dar en él.
+El objetivo lo fija el usuario con **Seleccionar destino** o `Ctrl + clic` (§8.2);
+el asistente indica la potencia (o el ángulo) para dar en él.
+
+### 8.2 Selección interactiva de origen y destino (botón/capa o `Ctrl + clic`)
+
+> **Implementación actual:** `extension/src/content.js` implementa la máquina de
+> estados `origin`/`destination`, el snap al cañón, el bloqueo de `contextmenu`,
+> `Esc`, resize y la marca de potencia. El destino es **fijo** en coordenadas de
+> mundo; el modo `entity` (seguir al rival) queda pendiente. El overlay es
+> full-viewport con Shadow DOM y proyecta con la misma cámara/zoom del canvas.
+> El botón **Seleccionar destino** arma una capa visual con `pointer-events:none`:
+> los `mousemove` sí llegan al canvas para que el cañón apunte al cursor, y el
+> clic final se intercepta en `window` (captura) antes de que el juego lo reciba.
+> Así no se bloquea el apuntado y el clic no dispara. El page-hook recibe
+> `selection-mode` para ignorar ese `pointerdown/pointerup` como muestra de
+> disparo. `Ctrl + clic` se conserva como atajo.
+
+Regla base: **todo se guarda en coordenadas de mundo**. El clic solo se usa para
+capturar una posición de pantalla; nunca se fija un offset de pantalla. El origen y
+el destino se reproyectan en cada frame con la cámara/zoom vigentes (§6).
+
+#### Estados
+
+| Estado | Valores | Comportamiento |
+|---|---|---|
+| `origin` | `auto` / `own-cannon` | `auto` usa el cañón del jugador propio. `own-cannon` también se recalcula cada frame con `originFor`; **no se congela** en el punto del clic. |
+| `destination` | `null` / `fixed` / `entity` | `fixed` es un punto de mundo; `entity` sigue al rival si su hitbox está disponible. |
+| `selectionStep` | `origin` / `destination` | Empieza en `origin`; después del primer clic pasa a `destination`. |
+
+#### Gesto
+
+- **Botón Seleccionar destino:** arma una capa visual (sin capturar el ratón).
+  Mover el ratón apunta el cañón en el juego; el siguiente clic izquierdo dentro
+  del canvas fija `destination = world(click)` y desarma la capa. El clic se
+  intercepta en captura y no llega al canvas. `Esc`, clic derecho o clic fuera
+  del canvas cancela.
+- Atajo `Ctrl + clic izquierdo/derecho` sobre `#gameui`:
+  1. Si `selectionStep === 'origin'` **o** el clic cae sobre el móvil propio:
+     fija `origin = own-cannon` y redirige el marcador a la boca del cañón,
+     aunque el clic haya sido lejos. Pasa a `selectionStep = 'destination'`.
+  2. Si `selectionStep === 'destination'`: fija `destination = world(click)`.
+     Los siguientes `Ctrl + clic` **mueven el destino**.
+  3. Si el clic cae sobre el rival: `destination = { kind: 'entity', ref: rival }`
+     y se recalcula su centro cada frame. Si no se puede leer el hitbox, se usa un
+     punto fijo y se muestra la incertidumbre.
+- `Ctrl + clic` sobre el móvil propio, en cualquier momento, vuelve a fijar
+  el origen en el cañón.
+- `Esc` cancela el modo de selección o limpia el destino.
+- `Shift + Ctrl + clic` fuerza el modo destino sin tocar el origen (atajo
+  opcional para cuando el origen ya está fijado).
+- El clic derecho **sin Ctrl** no se intercepta: sigue siendo del juego/navegador.
+
+#### Captura del evento
+
+- Escuchar `pointerdown` en fase de captura. En modo selección, interceptar
+  `button === 0` para fijar el destino; `button === 2` cancela. Sin modo
+  selección, el atajo es `button === 2 && ctrlKey`.
+- Llamar `preventDefault()` y `stopImmediatePropagation()` solo en esos casos.
+  El page-hook que observa `pointerup` ignora el gesto mientras el modo
+  selección está activo.
+- No usar `click`: el botón derecho no dispara `click`.
+- Ignorar el evento si no hay jugador propio (`player_info.is_me`) o si la cámara
+  no está sincronizada.
+- Convertir pantalla → mundo:
+
+```js
+const r = gameui.getBoundingClientRect();
+const sx = (event.clientX - r.left) * (canvas.width / r.width);
+const sy = (event.clientY - r.top) * (canvas.height / r.height);
+const world = { x: sx / zoom - camera.x, y: sy / zoom - camera.y };
+```
+
+> Si se usa `stage.toLocal`, hay que aplicar la misma transformación de cámara del
+> juego; no mezclar coordenadas de página con coordenadas de canvas.
+
+#### Cálculo y dibujo
+
+1. `origin = originFor(me, me.body, me.look, me.mobile)`.
+2. `destination` en mundo.
+3. `θ` efectivo con `look`/`body` (§7.4).
+4. Validar que el destino esté en el sentido de `look`. Si está detrás, mostrar
+   `OBJETIVO DETRÁS` y no calcular potencia.
+5. Resolver la potencia con §8.1. Si no hay solución o `P ∉ [0, 400]`, mostrar
+   `INALCANZABLE` y no dibujar la trayectoria solución.
+6. Dibujar:
+   - marcador de **origen** en la boca del cañón;
+   - marcador de **destino**;
+   - trayectoria **solución** en verde con la potencia calculada;
+   - trayectoria **actual** en cyan si se conoce la potencia;
+   - marca de potencia necesaria en la barra (§8.2.1).
+7. Recalcular en `requestAnimationFrame` o por eventos cuando cambie el ángulo,
+   la potencia, la cámara, el tamaño del viewport, el turno o la posición del rival.
+
+#### 8.2.1 Barra de potencia
+
+La barra del juego mide 400 px de potencia. La marca de la **última** potencia usa
+`#last_power_mark.style.left = 247 + P` (§16.11). Para la potencia **necesaria**:
+
+```text
+P_nec = v0 / perfil.powerScale        // §8.1, 0..400
+x_rel = (P_nec / 400) * anchoBarra
+```
+
+- Medir `#powerMarkArea` (o `#powerMarks`) con `getBoundingClientRect()`: esas
+  áreas representan 0..400 y ya incluyen el zoom. `#powerBar` solo mide la
+  potencia actual y se usa como último recurso.
+- Dibujar la marca en el **overlay**, no escribiendo en el DOM del juego. Usar
+  contorno oscuro, línea sólida y aguja superior para que se distinga sobre el
+  fondo; la etiqueta se recorta al viewport.
+- Mostrar `POTENCIA NECESARIA = 181 / 400` y la marca sobre la barra.
+- Si el jugador está cargando, dibujar también la marca actual
+  (`#powerBar.style.width`).
+- **No automatizar el disparo en v1:** la extensión solo marca hasta dónde llegar;
+  el usuario suelta el clic. Automatizar la barra o el disparo queda fuera de
+  alcance y requiere revisar ToS.
+
+#### 8.2.2 Ciclo de vida
+
+- **Cambio de turno:** si no es el turno propio, ocultar la selección; al volver,
+  conservar el destino si sigue siendo válido o limpiarlo.
+- **Cambio de sala/reconexión:** `destination = null`, `selectionStep = 'origin'`,
+  `origin = auto`, `resetPhysics()` en la auto-calibración.
+- **Movimiento del jugador:** el origen se recalcula; un destino `fixed` no se
+  mueve; un destino `entity` sigue al rival.
+- **Pérdida de cámara/zoom/jugador:** no dibujar y mostrar `SIN SINCRONIZACIÓN`.
+
+#### 8.2.3 Pruebas manuales específicas
+
+| # | Escenario | Criterio |
+|---|---|---|
+| G | Primer `Ctrl + clic derecho` lejos del cañón | El origen queda en la boca del cañón propio, no en el clic. |
+| H | Segundo `Ctrl + clic derecho` | Aparecen destino, trayectoria solución y marca de potencia. |
+| I | Mover el destino | Se recalcula potencia y trayectoria sin reiniciar. |
+| J | `Ctrl + clic derecho` sobre el móvil propio | Vuelve a fijar el origen en el cañón. |
+| K | Destino detrás o fuera de alcance | Muestra `OBJETIVO DETRÁS` / `INALCANZABLE`; no inventa potencia. |
+| L | Resize, zoom o fullscreen | Origen/destino siguen anclados al mundo, sin drift. |
+| M | Destino a la derecha con `look=1` | La trayectoria empieza a la derecha y hay potencia válida. |
+| N | Destino a la izquierda con `look=0` | El origen se espeja a la izquierda y la trayectoria también. |
+| O | Mover el ratón en modo selección | El cañón del juego gira; el clic final no dispara ni crea muestra. |
 
 ---
 
@@ -403,52 +747,72 @@ indica la potencia (o el ángulo) para dar en él.
 
 ## 10. Plan de implementación por fases
 
-**Fase 0 — Andamiaje**
+**Estado 2026-10-20 (actualizado):** la verificación live de **protocolo, opcodes,
+física y Pixi** está hecha (§1.2, §7.4, §16.9, §16.10). La extensión MV3 ya está
+implementada en `extension/` (manifest, hook MAIN, overlay ISOLATED, selección
+origen/destino y calibración integrada). Se validó en navegador con Pixi/WebSocket
+simulados y con la extensión cargada en `dragonbound.net`; falta la prueba live de
+los escenarios G–O y del ciclo de sala/reconexión.
+
+**Fase 0 — Andamiaje** *(implementado)*
 - `extension/manifest.json` (MV3), iconos, permisos.
 - Inyección MAIN + ISOLATED, canal `postMessage` documentado.
-- Página de prueba estática con un WebSocket mock.
+- Harness de integración con WebSocket/Pixi simulados (temporal, fuera del repo).
 
-**Fase 0.5 — Verificación contra el sitio real (bloqueante)**
-- Ejecutar el checklist de §16.3 sobre `https://dragonbound.net/` desde un entorno con acceso.
-- Fijar/confirmar el **perfil** (§16.5): opcodes, motor, constantes físicas, URL del WS y permisos.
-- Sin esta fase, el diseño aplica **solo al remake**.
+**Fase 0.5 — Verificación contra el sitio real (parcial, 2026-10-20)**
+- **Hecho:** URL del WS, XOR/framing, `play`/`room_state`/`update`/`result`, campos del
+  disparo, física live de referencia (`2.269/390`, origen Armor), `room_state` de
+  salas 48/44, `look=0`, potencia ↔ `game_shoot.power`, Pixi y localización del
+  jugador propio (`player_info.is_me`).
+- **Hecho:** auto-calibración `powerScale`/`gravity` con `play.s[3]/s[5]`,
+  14/14 pruebas.
+- **Pendiente:** CSP/SRI/ToS, offsets de otros móviles, `game_start` live,
+  prueba live dentro de una partida y validación de resize/fullscreen.
+- El perfil `dragonbound-net` ya lleva las constantes de fallback y la
+  auto-calibración; falta completar el resto de §16.3 y marcar `calibrated:true`.
 
-**Fase 1 — Lectura de red**
+**Fase 1 — Lectura de red** *(implementado en MVP)*
 - Hook `WebSocket` send/receive; decodificador de opcodes (§5).
-- Estado de turno/jugador desde `play`, `room_state`, `game_start`.
+- Estado de turno/jugador desde `play`, `room_state`, `game_start` (parcial:
+  `game_start` no se usa todavía).
 
-**Fase 2 — Lectura de runtime (ángulo vivo)**
-- Captura de `window.PIXI`; recorrido del stage; lectura `ang/x/y/body/look`.
+**Fase 2 — Lectura de runtime (ángulo vivo)** *(implementado en MVP)*
+- Hook de `document_start` para capturar `window.PIXI` antes de que se borre;
+  incluye fallback por `Renderer.render` si la app se creó antes del hook.
+- Localizar `PlayerContainer-*` por `_name` y `player_info.is_me`; leer
+  `x`, `y`, `look`, `body_angle`, `angle.rotation` (y `is_turn`).
+- Leer `zoom` y `camera` del contenedor de mundo para mundo→viewport.
 - Fallback a `game_shoot` y marca de "no disponible".
 
-**Fase 3 — Overlay y coordenadas**
-- Montaje del overlay sobre `#gameui`; conversión mundo→viewport con la cámara.
-- Dibujo de origen/destino y del indicador de ángulo.
+**Fase 3 — Overlay y coordenadas** *(implementado en MVP)*
+- Overlay full-viewport en Shadow DOM; conversión mundo→viewport con la cámara.
+- Dibujo de origen/destino, trayectoria solución/actual y marca de potencia.
 
-**Fase 4 — Física AIRE=0 y `SIMULAR`**
-- `core/physics.js` con `DragModel.NO_AIR`.
-- Botón `SIMULAR`, campo `ÁNGULO`, campo `AIRE = 0` (fijo).
+**Fase 4 — Física AIRE=0 y asistente** *(implementado en MVP)*
+- Balística `AIRE=0` dentro de `content.js` (`solvePower`, `drawTrajectory`).
+- Panel con potencia necesaria y ángulo efectivo; sin botón `SIMULAR` todavía.
+- La marca de potencia es visual; no se escribe en la barra ni se dispara.
 
 **Fase 5 — Pruebas y endurecimiento**
 - Unitarias + integración con harness mock; escenarios A–F (§12).
-- Manejo de errores, logging, opciones.
+- **Hecho:** 14/14 auto-calibración, 37/37 integración hook→overlay→reset con
+  destinos a izquierda/derecha, `look=0/1` y marca de potencia.
+- **Pendiente:** escenarios G–O live, resize/fullscreen, CSP/SRI/ToS.
 
-**Árbol de archivos previsto (no creado aún):**
+**Árbol de archivos actual:**
 
 ```
 extension/
   manifest.json
-  inject/page-hook.js
-  content/content.js
-  overlay/overlay.js
-  overlay/overlay.css
-  core/physics.js
-  core/protocol.js
-  core/state.js
-  background/service-worker.js
-  popup/popup.html|js
-  options/options.html|js
-  tests/
+  icons/icon16.png|icon48.png|icon128.png
+  src/page-hook.js
+  src/content.js
+  src/auto-calibration.js
+  src/background.js
+  test/auto-calibration.test.html|js
+  test/integration.test.html
+  test/fixtures/captured-shots.js
+  README.md
 ```
 
 ---
@@ -456,16 +820,36 @@ extension/
 ## 11. Pruebas
 
 ### 11.1 Unitarias (JS)
-- `physics.js`: casos con `AIRE=0` comparados con `shoot.getPosAtTime` del repo
-  (mismos `x0,y0,ang,power,weight=398,friccion=0,485`).
-- `protocol.js`: decodificación de `game_shoot`/`play` con muestras reales del formato.
-- `state.js`: staleness, mediana, filtrado por `is_me`, revalidación por cambio de turno.
+- `auto-calibration.js`: 14 pruebas con payloads reales en
+  `extension/test/auto-calibration.test.html` (fallback, `look=0`, `look=1`,
+  viento, reset, origen opcional, espejo con `body` y `onChange`). Resultado
+  actual: **14/14**.
+- `page-hook.js`: decodificación XOR de `game_shoot`/`play`/`room_state` y
+  publicación de eventos (probado con frames simulados).
+- `content.js`: solución de potencia/trayectoria, proyección mundo→cliente,
+  selección por botón/capa y `Ctrl + clic`, `Esc`, reset por sala, acoplamiento
+  del panel fuera del canvas y mostrar/ocultar desde el icono (probado con
+  Pixi/WebSocket simulados).
 
 ### 11.2 Integración
-- **Harness mock**: página que simula un WebSocket y un "jugador" con `ang` mutable,
-  para validar el flujo hook → estado → física → overlay sin el juego real.
+- **Harness mock:** página con WebSocket falso y un `PIXI.Application` falso
+  (canvas, cámara, `player_info.is_me`). Valida hook → auto-calibración →
+  snapshot → overlay → clic → potencia → `room_state`.
+- **Resultado:** **37/37**; calibración `powerScale=2.3641`, `gravity=402`; panel
+  `POTENCIA NECESARIA=166/400` para el destino de prueba; reset por `room_state`;
+  selección por capa sin bloquear el ratón, destinos a izquierda/derecha con
+  `look=0/1`, marcador de potencia y acoplamiento del panel fuera del canvas
+  verificados.
+- La extensión también se cargó como unpacked en Brave y se verificó que los
+  content scripts MAIN/ISOLATED montan el hook y el host del overlay en
+  `dragonbound.net` (pantalla de login, sin partida).
 
-### 11.3 End-to-end manual (A–F)
+### 11.3 End-to-end manual (A–F, pendientes)
+
+> El MVP no tiene botón `SIMULAR`: la trayectoria se dibuja automáticamente al
+> fijar el destino. Los escenarios C/D se reinterpretan como “la trayectoria
+> respeta `look`/`body`”. Las filas A–F siguen pendientes de una partida live.
+
 | # | Escenario | Criterio |
 |---|---|---|
 | A | Desplazamiento de escena | Origen/destino siguen al escenario al mover la cámara (sin drift). |
@@ -474,6 +858,10 @@ extension/
 | D | Integración `SIMULAR` | Usa origen/ángulo vigentes; se actualiza sin valores viejos. |
 | E | Condición de aire | `AIRE = 0` fijo; el viento leído se ignora; trayectoria balística pura. |
 | F | Estabilidad/rendimiento | Sin jitter ni parpadeo; overlay fluido; estado "no disponible" correcto. |
+
+> Los escenarios **G–O** de §8.2.3 cubren la selección `Ctrl + clic derecho`, el
+> redireccionamiento al cañón, la marca de potencia y los destinos a
+> izquierda/derecha con `look=0/1`.
 
 ### 11.4 Fallback de visión (opcional)
 Si el hook de Pixi no fuera estable en alguna versión, se puede añadir detección
@@ -484,9 +872,9 @@ de escritorio ni DPI). Queda **fuera de la fase 1–5** y se documenta como plan
 
 ## 12. Limitaciones y riesgos
 
-1. **Dependencia de la estructura interna** (`player.ang`, stage de Pixi) y del
-   protocolo. Mitigación: hook de red como fuente primaria + marca de "no
-   disponible"; tests de contrato.
+1. **Dependencia de la estructura interna** (`PlayerContainer.angle.rotation`, stage
+   de Pixi) y del protocolo. Mitigación: hook de red como fuente primaria + marca de
+   "no disponible"; tests de contrato.
 2. **Minificación**: el bundle no tiene API pública; los nombres pueden cambiar entre
    builds. Mitigación: aislar la lectura en `page-hook.js` y detectar versión.
 3. **Offsets de cañón** (`dis`, `dy`) dependen del móvil. Mitigación: leer el móvil de
@@ -515,11 +903,12 @@ de escritorio ni DPI). Queda **fuera de la fase 1–5** y se documenta como plan
 
 ## 14. Riesgos abiertos y decisiones pendientes
 
-- **(BLOQUEANTE) Verificación contra `https://dragonbound.net/`** (§16): el análisis
-  proviene del *remake*, no del sitio en producción. Sin esta verificación, opcodes,
-  constantes y estructura del cliente son **hipótesis**.
-- Confirmar en el juego real que `window.PIXI` es capturable y que el jugador propio
-  es localizable en el stage (o mantener el fallback).
+- **Verificación live (2026-10-20):** protocolo, opcodes, física y Pixi están
+  confirmados/calibrados contra `https://dragonbound.net/` (§1.2, §7.4, §16.9 y
+  §16.10); **las restricciones (CSP/SRI/ToS)** siguen pendientes.
+- `window.PIXI` es capturable y el jugador propio se localiza por
+  `player_info.is_me`; la correlación de ángulo con `look=0`/`body=0` y la
+  potencia ya están validadas. Queda integrar el módulo en el hook/overlay.
 - Definir el modo "observador" (dibujar para el jugador en turno, no solo el propio).
 - Decidir empaquetado: solo extensión, o extensión + app Java como respaldo.
 
@@ -537,29 +926,43 @@ se elimina nada en este documento.
 
 ### 16.1 Por qué es necesaria
 
-Todo el análisis de §1–§8 se hizo sobre el repositorio `DragonBoundR/DragonBound`, que
-es un **remake** ("DragonBoundRe — Remake of the original DragonBound game").
-`https://dragonbound.net/` es el **juego en producción**. No hay garantía de que
-compartan:
+El análisis original de §1–§8 se hizo sobre el repositorio
+`DragonBoundR/DragonBound`, que es un **remake** ("DragonBoundRe — Remake of the
+original DragonBound game"). La captura live del **2026-10-20** verificó el
+transporte, los opcodes, la física y el runtime Pixi contra producción (§1.2, §7.4,
+§16.8, §16.9 y §16.10). `https://dragonbound.net/` es el **juego en producción**. No hay garantía de que remake y producción compartan:
 
 - versión/estructura del cliente (bundle, motor, nombres internos),
 - opcodes del protocolo y forma de los mensajes,
-- constantes físicas (`weight`, escala de potencia, divisor 485),
+- constantes físicas (el remake usa `398/2.34/485`; producción parte de
+  `390/2.269/segundos` como fallback y se auto-calibra desde `play`, §7.4 y
+  §16.12),
 - transporte (puerto, `ws://` vs. `wss://`, framing, token/ruta).
 
 Por tanto, **todo lo deducido debe confirmarse** contra el sitio real antes de
 considerar el diseño válido para producción. Lo deducido del remake queda marcado
 `↩ repo`; lo pendiente en producción, `⚠ producción`.
 
-### 16.2 Estado actual (bloqueo desde este equipo)
+### 16.2 Estado actual (verificación parcial)
 
-- Desde este entorno el acceso está **bloqueado**: `https://dragonbound.net/` (y
-  `www.`) responde **HTTP 403** con una página de reto de **Cloudflare**, incluso para
-  `/` y para rutas de assets.
-- No es un fallo de la extensión ni del código: es **protección anti-bot / restricción
-  de red** del equipo.
-- Consecuencia: **no se pudo verificar nada automáticamente**; las afirmaciones sobre
-  el sitio real quedan marcadas como **pendientes** hasta ejecutar §16.3.
+- El sitio se abrió en un **navegador real** (Brave) y se capturó una partida 1 vs 1
+  en el servidor 6 (`Bunge`) el **2026-10-20**.
+- El **403** anterior era de `curl`/red automatizada; el navegador real cargó el
+  cliente sin ese bloqueo.
+- Confirmado: URL del WebSocket, XOR de aplicación, framing, `play(6)`,
+  `room_state(5)`, `update(11)`, resultado `(13)`.
+- Disparo confirmado, pero con **opcode variable**: `0x07` en servidor 6 y `0x3A`
+  en servidor 5 (2026-10-20). No hardcodear; detectar por payload/perfil.
+- Física live **de referencia** con 8 disparos (servidor 5, Armor/Metamine):
+  `v0 = 2.269·power`, `gravity = 390`, tiempo en segundos y origen Armor
+  `(20.45, -25.83)` rotado por `body` (§7.4, §16.9). La sala 44 midió
+  `2.364/402`; el perfil se auto-calibra desde `play` (§16.12).
+- **Pixi confirmado** y jugador propio localizado en el stage (2026-10-20):
+  `window.PIXI` se borra, pero el `InteractionManager`/`Stage` se recuperó en vivo;
+  el jugador propio es `PlayerInfo-*.is_me === true` dentro de `PlayerContainer-*`.
+  Ver §16.10.
+- Pendiente: CSP/SRI, términos de uso y validación de la física dentro de la
+  extensión.
 
 ### 16.3 Qué hay que verificar (checklist)
 
@@ -568,40 +971,61 @@ Ejecutar desde un navegador con acceso real (sesión normal) con DevTools abiert
 1. **Cliente / motor**
    - ¿Es Pixi.js? Buscar `PIXI`, `canvas`, `getContext`, `worldTransform`, `requestAnimationFrame`.
    - ¿Un bundle único? Anotar ruta y tamaño (comparar con `1023989.js`).
-   - ¿Es WebGL/canvas (HTML5) o SWF/Flash? Esto define la estrategia.
+     **Live 2026-10-20:** no hay `1023989.js`; el HTML carga un script inline ofuscado (~202 KB). **Pixi.js confirmado** (§16.10).
+   - **Confirmado:** canvas HTML5 con Pixi.js y contexto WebGL (listeners `webglcontextlost`/`restored`); no es SWF/Flash.
 2. **WebSocket**
    - Network → WS → anotar la **URL exacta** (esquema `ws`/`wss`, host, puerto, ruta/token).
+     **Confirmado:** `wss://s3qu3nc3dis0rdred.dragon.ws/6` (servidor 6, `Bunge`).
    - Capturar varios **frames** enviados y recibidos y guardarlos como evidencia.
+     **Hecho:** 148 frames; XOR `0xA5` C→S y `0xDB` S→C.
 3. **Opcodes / contratos**
    - ¿Los mensajes son `[opcode, ...args]` serializados en JSON?
+     **No exactamente:** primer byte de opcode + payload textual/JSON-like.
    - Confirmar el opcode de disparo y sus campos (ángulo, potencia, `look`, `body`).
+     **Campos confirmados:** `x,y,body,look,ang,power,time,selectedShot,extra`.
+     **Opcode variable:** `0x07` en servidor 6; `0x3A` en servidor 5 (2026-10-20).
    - Confirmar el mensaje de turno y sus campos (posiciones, viento).
+     **Confirmado:** `play = 0x06`; `wind_power` en índice 13, ángulo en índice 14.
 4. **Constantes de física**
    - Buscar `398`, `234`, `485` (o equivalentes) en el bundle.
-   - **Validación empírica:** con un disparo conocido (origen, ángulo, potencia) y su
-     impacto medido, despejar `W` y la escala de potencia y comparar con `398` / `2.34`.
+   - **Validación empírica live (2026-10-20):** el resultado `play[15]` trae
+     `s=[x0,y0,ang,v0,windX,vertAccel]`, `time` (ms) y `h` (impacto). De 8 disparos:
+     `v0 = 2.269·power`, `gravity = 390` con viento 0, `ang_abs = ang − body` y
+     origen Armor `(20.45, −25.83)`. La predicción coincide con `h` dentro de ~4 px.
+     La sala 44 dio `2.364/402`; el perfil se auto-calibra con `s[3]/s[5]`.
+     Ver §7.4, §16.9 y §16.12.
+   - **No usar `extra`** como trayectoria: es apuntado/touch.
 5. **Estado en vivo**
-   - ¿`window.PIXI` existe (aunque se borre) y es capturable?
-   - ¿Se localiza el jugador propio y se lee `ang`, `body`, `look`, `x`, `y`, `is_me`?
+   - **Confirmado (2026-10-20):** Pixi.js; `window.PIXI` se borra, pero el
+     `InteractionManager`/`Stage` es accesible y el stage contiene el árbol del juego.
+   - **Confirmado:** jugador propio = `PlayerInfo-*.is_me === true`; se leen
+     `x`, `y`, `look`, `body_angle`, `angle.rotation` y `player_info`.
+   - **Confirmado (2026-10-20):** `angle.rotation`/`aim.deg` contra `game_shoot.ang`
+     con `look=0` y `body=0` (`aim.deg=200` → `ang=20`); el espejo `look=0` y la
+     potencia quedaron validados. `body≠0` ya era consistente en la calibración
+     previa.
 6. **Superficie del overlay**
    - Contenedor del viewport y su rectángulo; cámara y su transformación.
 7. **Restricciones**
    - CSP / `script-src` / SRI del bundle: ¿permite inyectar en MAIN world?
      (Chrome 111+ `world:"MAIN"`; si no, `<script>` con `nonce` o plan B).
    - Términos de servicio / normas del servidor.
+   - **Pendiente:** no se auditó CSP/SRI ni ToS en esta captura.
 8. **Permisos de la extensión**
    - `host_permissions` para el dominio real (y para `wss://`) según la URL capturada.
+   - **Confirmado:** se necesita acceso a `https://dragonbound.net/*` y a
+     `wss://*.dragon.ws/*` (el host concreto depende del servidor elegido).
 
-### 16.4 Cómo proceder si el equipo sigue bloqueado
+### 16.4 Cómo obtener más evidencia
 
-- Ejecutar la verificación desde una **máquina/red con acceso** (otra conexión, VPN
-  autorizada, o el propio servidor si se despliega ahí).
-- Alternativa offline: exportar desde un navegador con acceso un **HAR** con los frames
-  de WebSocket y una **captura** del árbol de red, y analizarlos aquí para ajustar el
-  perfil (§16.5).
-- Entregables de la verificación: URL del WS, lista de opcodes con ejemplos de frames,
-  presencia/ausencia de Pixi, constantes físicas confirmadas o corregidas, rect del
-  viewport.
+- Repetir la captura desde un **navegador real** con una cuenta propia y una partida
+  de prueba, como en §16.8.
+- Alternativa offline: exportar un **HAR** con los frames de WebSocket y una
+  **captura** del árbol de red, y analizarlos aquí para ajustar el perfil (§16.5).
+- Entregables: URL del WS, lista de opcodes con ejemplos de frames, presencia/ausencia
+  de Pixi, constantes físicas confirmadas o corregidas, rect del viewport.
+- Si se vuelve a usar captura automatizada, tener en cuenta que `curl`/redes de
+  datacenter pueden recibir **403** de Cloudflare; el navegador real es la referencia.
 
 ### 16.5 Perfil de compatibilidad (soportar remake y producción)
 
@@ -612,34 +1036,268 @@ mismo motor funcione con el remake y con el sitio real:
 {
   "id": "dragonbound-net",
   "match": ["https://dragonbound.net/*", "https://*.dragonbound.net/*"],
-  "ws": { "urlPattern": "wss://…", "framing": "json-array" },
-  "opcodes": { "game_shoot": 1, "play": 6, "room_state": 5, "game_start": 7,
-               "update": 11, "started_to_shoot": 60, "look": 61 },
-  "client": { "engine": "pixi", "pixiGlobal": "PIXI", "playerAngleField": "ang", "meFlag": "is_me" },
-  "physics": { "gravity": 398, "powerScale": 2.34, "timeDivisor": 485, "unit": "client-0-400" },
+  "ws": { "urlPattern": "wss://*.dragon.ws/*", "framing": "opcode+xor" },
+  "xor": { "clientToServer": 165, "serverToClient": 219 },
+  "opcodes": { "game_shoot": null, "game_move": 6, "play": 6, "room_state": 5,
+               "update": 11, "result": 13,
+               "game_shootByServer": { "6": 7, "5": 58 } },
+  "client": { "engine": "pixi", "bundle": "inline-obfuscated",
+              "pixiCapturable": true, "playerAngleField": "angle.rotation",
+              "meFlag": "player_info.is_me", "camera": "world-container" },
+  "physics": { "model": "live", "gravity": 390, "powerScale": 2.269,
+               "timeUnit": "s", "timeDivisor": 1000, "unit": "px/s",
+               "armorOrigin": { "a": 20.45, "c": 25.83, "x": 20.45, "y": -25.83 },
+               "autoCalibration": { "enabled": true, "source": "play",
+                                    "window": 8, "fallback": "2.269/390" },
+               "remake": { "gravity": 398, "powerScale": 2.34, "timeDivisor": 485 } },
+  "wind": { "mode": "ignored", "value": 0 },
+  "verified": { "protocol": true, "physics": true, "pixi": true, "date": "2026-10-20" },
   "calibrated": false
 }
 ```
 
-- El perfil `dragonbound-net` queda **sin confirmar** (`calibrated:false`) hasta §16.3.
+- El perfil `dragonbound-net` tiene el **protocolo, la física live y Pixi
+  confirmados** (2026-10-20), pero sigue `calibrated:false`: las restricciones no
+  están verificadas y la física aún no se ha validado dentro de la extensión.
+- `game_shoot` no es estable entre servidores (`0x07` en server 6, `0x3A` en
+  server 5); el hook debe detectarlo por la forma del payload o por perfil.
+- La captura live usó el servidor 6 (`Bunge`) y la ruta `/6`; el `urlPattern` cubre
+  otros servidores de `*.dragon.ws`.
+- `wind.mode = "ignored"` y `wind.value = 0` son la **decisión v1**: el viento se
+  lee si está disponible, pero no se usa en la física.
 - Si algún valor difiere, se corrige **solo en el perfil**, sin tocar el motor.
-- Si la gravedad no fuese `398`, el perfil permite **calibrarla** con una observación
-  real (origen + impacto) en vez de asumirla.
+- La gravedad live parte de `390` y la escala de `2.269`, pero el perfil se
+  **auto-calibra** desde `play` (§16.12); no se asume que sean universales.
+  El perfil permite recalibrar si cambia la versión del servidor.
 
 ### 16.6 Criterios de aceptación de la verificación
 
-- [ ] URL del WebSocket confirmada (esquema, host, puerto, ruta).
-- [ ] Disparo (`game_shoot`) y mensaje de turno confirmados con frames reales.
-- [ ] Motor del cliente confirmado (Pixi u otro) y método de lectura del ángulo.
-- [ ] Constantes físicas confirmadas o corregidas, con evidencia.
+- [x] URL del WebSocket confirmada: `wss://s3qu3nc3dis0rdred.dragon.ws/6` (2026-10-20).
+- [x] Disparo y mensaje de turno (`play = 0x06`) confirmados con frames reales.
+  El opcode del disparo es variable: `0x07` (server 6) / `0x3A` (server 5).
+- [x] Constantes físicas live de referencia: `v0 = 2.269·power`, `gravity = 390`
+  (viento 0), tiempo en segundos, origen Armor `(20.45, −25.83)`; quedan como
+  **fallback** porque la sala 44 midió `2.364/402`.
+- [x] Motor del cliente confirmado: **Pixi.js**; jugador propio localizado por
+  `player_info.is_me` y ángulo leído de `angle.rotation` (2026-10-20).
+- [x] Correlación `angle.rotation` ↔ `ang` con `look=0`/`body=0` (2026-10-20):
+  `aim.deg=200` → `ang=20`. `look=1` ya estaba cubierto por la calibración previa.
+- [x] Potencia DOM ↔ `game_shoot.power` (195/250/240/223) y auto-calibración
+  `powerScale`/`gravity` implementada y probada (14/14).
+- [x] `room_state` de salas 48 y 44 comparado: mismo modo/mapa/`max_wind`; no
+  declara física. `game_start` conocido tampoco. Ver §16.12.
+- [x] Física y auto-calibración integradas en la extensión y probadas con un
+  harness Pixi/WebSocket simulado (calibración `2.364/402`, reset por `room_state`).
+- [ ] Física validada dentro de una partida live (no solo con harness).
+- [x] Selección `Ctrl + clic derecho`, snap al cañón, trayectoria y marca de
+  potencia implementados en `extension/src/content.js`; integración 37/37 con
+  destinos izquierdo/derecho y `look=0/1`.
+- [ ] Escenarios live G–O, resize/fullscreen y cambio de sala/reconexión.
 - [ ] Restricciones (CSP/SRI/ToS) documentadas.
 - [ ] Perfil `dragonbound-net` marcado como `calibrated:true` con fecha/versión.
 
 ### 16.7 Regla de honestidad
 
-Mientras §16 no se complete: nada se declara "funciona en producción". El diseño es
-**válido para el remake** (`↩ repo`) y **candidato** para el sitio real (`⚠ producción`).
-La extensión no debe presentar valores estimados como confirmados.
+Tras las capturas del **2026-10-20**, el **protocolo**, la **física live** y **Pixi**
+están confirmados para producción (opcodes con variantes por servidor). La
+extensión MV3 ya implementa el hook, el overlay y la selección origen/destino, y
+pasó las pruebas de auto-calibración (14/14) y de integración con Pixi/WebSocket
+simulados (37/37). **Las restricciones (CSP/SRI/ToS), la prueba G–O en una partida real y
+la validación de resize/fullscreen/reconexión** siguen pendientes. Nada se declara
+"funciona en producción" hasta completar esos puntos. La extensión no debe
+presentar valores estimados como confirmados.
+
+### 16.8 Captura live (2026-10-20)
+
+- Entorno: navegador Brave real, cuenta propia, servidor **6 (`Bunge`)**, partida 1 vs 1.
+- Endpoint: `wss://s3qu3nc3dis0rdred.dragon.ws/6` (handshake 101, nginx).
+- 148 frames: 80 cliente → servidor y 65 servidor → cliente; 5 disparos y resultado final `won: 0`.
+- XOR de aplicación: `0xA5` cliente → servidor; `0xDB` servidor → cliente.
+- `game_shoot` observado: `0x07`; ejemplo de campos:
+  `748,214,-12,1,25,100,3155,0,[...]` → `x,y,body,look,ang,power,time,selectedShot,extra`.
+- `play` observado: `0x06`; ejemplo:
+  `[2,0,1273,164,0,500,1,[],1076,-334,-2,0,-1,14,2,[...]]`
+  → `wind_power = 14` (índice 13), `wind_angle + 180 = 2` (índice 14).
+- `extra` es apuntado/touch, no la trayectoria física.
+- La captura cruda **no se versiona** porque contiene un token de sesión; cualquier
+  muestra que se agregue al repo debe ir redactada.
+
+### 16.9 Calibración live (servidor 5, sala 48, 2026-10-20)
+
+- Entorno: Brave real, **Armor**, mapa **Metamine**, 1 vs 1, rival inmóvil.
+- Se capturaron **8 disparos**. Viento: `0` en los dos primeros turnos; después
+  `50, 49, 48, …, 42`. Por eso solo los dos primeros son válidos para AIRE = 0.
+- En `play` (índice 15) el servidor envía el resultado físico:
+  `s=[x0,y0,ang_abs,v0,windX,vertAccel]`, `time` (ms) y `h` (impacto).
+- Importante: `wind_power` (índice 13) es el viento del **siguiente** turno. El
+  viento que actuó en el disparo está en `s[4]`/`s[5]`. Por eso el disparo 2 tiene
+  `s[4]=0` aunque el `play` que lo contiene muestre `wind_power=50`.
+- `s` y `time` reproducen `h` dentro de ~1–4 px en los 8 disparos. Ejemplos:
+
+| # | Viento | power | ang | body | `s` | `time` | `h` |
+|---:|---:|---:|---:|---:|---|---:|---|
+| 1 | 0 | 175 | 55 | −17 | `[414,−11,72,397,0,390]` | 2050 | `[664,31,60,40]` |
+| 2 | 0 | 133 | 55 | −15 | `[265,40,70,302,0,390]` | 50 | `[269,29,60,40]` |
+| 3 | 49 | 188 | 55 | −23 | `[331,15,78,427,−201,378]` | 2175 | `[50,0,60,40]` |
+| 5 | 46 | 164 | 20 | −6 | `[385,14,26,372,−189,378]` | 1150 | `[645,75,60,40]` |
+| 8 | 42 | 102 | 21 | −1 | `[511,27,22,232,−173,382]` | 1275 | `[645,222,37,27]` |
+
+- Constantes de esta captura: `v0 = power × 2.269` (2.266–2.275),
+  `gravity = 390` con viento 0, `ang_abs = ang − body`, origen Armor
+  `(20.45, −25.83)` rotado por `body`. Los 8 disparos se hicieron con `look=1`.
+- **Captura posterior (sala 44, `look=0`, `body=0`):** cuatro disparos dieron
+  `v0/power = 2.364` y `s[5] = 402`; el espejo `look=0` y la potencia quedaron
+  confirmados. Ver §16.12.
+- El disparo del servidor 5 empezó con byte `0x3A` (ASCII `:`), no con `0x07` como
+  en el servidor 6. Es un opcode variable; ver §7.4.
+- **Pendiente:** repetir con viento realmente desactivado y 4–6 impactos para
+  validar los offsets de Armor y la gravedad con más puntos. La física básica ya
+  está confirmada; la captura actual es suficiente para implementar y comparar.
+
+### 16.10 Pixi y jugador propio en vivo (2026-10-20)
+
+- Entorno: Brave real, `https://dragonbound.net/#server-5/room-43`, partida en curso.
+- `window.PIXI` es `undefined` después de cargar. Para inspeccionar sin recargar se
+  usó un breakpoint en `InteractionManager.onMouseOut`; `this` es el
+  `InteractionManager`, `this.stage` el `Stage` de Pixi y `stage.interactionManager`
+  el propio manager. Técnica solo de diagnóstico; la extensión captura Pixi en
+  `document_start` (§4.2).
+- Canvas: **1257×943**. `zoom = 1.5716667` (`root.children[0].scale.x`).
+- Cámara: posición del contenedor de mundo (padre de los `PlayerContainer-*`):
+  `(64.57, 194.09)` en la muestra. Transformación confirmada:
+  `screen = zoom * (world + camera)`.
+- Jugador propio: `PlayerContainer-ZinComPaSioN` (mundo `(793, 118)`, `look=0`,
+  `body_angle=26`, `angle.rotation=4.1015 rad = 235°`, `player_info.is_me=true`).
+- Oponente: `PlayerContainer-Alex285` (mundo `(360, 174)`, `look=1`,
+  `angle.rotation=213°`). También aparece `PlayerContainer-soul` para un jugador
+  muerto: **no** es un jugador activo.
+- `PlayerInfo-<nombre>` expone `is_me`, `is_turn`, `hp`, `max_hp`, `team`, `guild` y
+  `country`; el `PlayerContainer` expone `x`, `y`, `look`, `body_angle`, `angle`
+  (rotación del apuntado), `mobile` (`Armor2D.png`) y `aimIsMe`.
+- **No usar índices** (`stage/0/2/3`, etc.): el árbol cambia al añadir/quitar joyas,
+  almas y efectos. Buscar por `_name` (`PlayerContainer-*`, `PlayerInfo-*`) y por
+  `player_info.is_me`.
+- **Resuelto (2026-10-20):** en el último disparo `aim.deg = 200` y el
+  `game_shoot` envió `ang = 20`; con `look=0` y `body=0`,
+  `ang = aim.deg − 180`. Los otros tres disparos son consistentes. `look=0`
+  queda confirmado; `look=1` ya estaba cubierto por la calibración previa.
+  Queda pendiente `body ≠ 0` en producción.
+
+### 16.11 Potencia en vivo desde el DOM (2026-10-20)
+
+La potencia **no** está en Pixi: es DOM dentro de `#gameui`.
+
+| Elemento | Valor observado | Uso |
+|---|---|---|
+| `#powerBar` | `offsetLeft=244`, `offsetTop=569`, alto 22 px; `style.width` = potencia | Barra de carga. Mientras se mantiene el clic crece de 0 a 400 px. |
+| `#powerMarks` | `offsetWidth=400`, mismo origen | Contenedor de marcas. |
+| `#powerMarkArea` | `offsetWidth=400` | Área de la barra. |
+| `#powerMark` | `offsetLeft=195`, ancho 11 px, `left:200px` | Marca fija (referencia visual). |
+| `#last_power_mark` | ancho 1 px; `style.left = 247 + potencia` | Marca de la **última** potencia disparada. |
+
+Lectura:
+
+```js
+// durante la carga
+const power = parseFloat(document.querySelector('#powerBar').style.width) || 0;
+
+// después del disparo (última potencia)
+const lastPower =
+  (parseFloat(document.querySelector('#last_power_mark').style.left) || 0) - 247;
+```
+
+Muestras reales (server 5, sala 19, 2026-10-20):
+
+| Disparo | `#powerBar` | `#last_power_mark.left` | `left − 247` |
+|---|---:|---:|---:|
+| 1 | 182 px | 429 px | 182 |
+| 2 | 117 px | 364 px | 117 |
+
+La relación es lineal y exacta dentro de 1 px. La barra **conserva** el ancho de la
+última potencia después del disparo; para la potencia *actual* hay que leerla
+mientras el jugador mantiene el clic. `#powerMark` no es la potencia actual.
+
+**Resuelto (2026-10-20):** los cuatro disparos de la sala 44 coincidieron
+exactamente con `game_shoot.power`: `195, 250, 240, 223`. La potencia DOM es la
+misma unidad 0–400 que usa el servidor y alimenta la auto-calibración (§16.12).
+
+### 16.12 Captura `room_state` y auto-calibración (2026-10-20)
+
+#### Captura y comparación
+
+Se capturó `room_state` de la sala 44 al volver a entrar, y se comparó con el
+`room_state` de la calibración previa (sala 48):
+
+| Sala | `room_state` | `game_mode` | `map` | `max_wind` | `turn_time` |
+|---:|---|---:|---:|---:|---:|
+| 48 | `[1,48,"DragonBound","",2,0,9,0,0,0,0,0,0,0,0,20,0,0,0,0]` | 0 (`NORMAL`) | 9 | 0 | 20 |
+| 44 | `[1,44,"Ven a jugar","",2,0,9,0,0,0,0,0,0,0,0,20,0,0,0,0]` | 0 (`NORMAL`) | 9 | 0 | 20 |
+
+Las dos salas coinciden en **modo, mapa, viento máximo y tiempo de turno**. La
+UI de la sala 44 mostraba `NORMAL`, `Meta Mine`, `Wind 0`, turno 20. Por tanto,
+la diferencia `2.269/390` vs. `2.364/402` **no está declarada por `room_state`**.
+
+`game_start` no aporta constantes de física en el contrato conocido: envía
+jugadores, posición de turno, `thor`, clima, `wind_power`/`wind_angle`, mapa,
+`is_s1_disabled`, `event_game`, `game_mode`, `score`, `turn_time` y clima activo.
+No hay `v0`, `powerScale` ni gravedad. No se capturó un `game_start` live nuevo
+porque la partida ya había terminado; si se quiere evidencia live adicional, se
+captura al iniciar otra partida, pero **no es una fuente de calibración**.
+
+#### Implementación
+
+Archivo: `extension/src/auto-calibration.js`.
+
+- Entrada: payload descifrado de `game_shoot` y payload descifrado de `play`.
+- Empareja el `play` con un disparo propio pendiente por `x`, `y` y `look`;
+  descarta `play` de otros jugadores.
+- `powerScale = s[3] / game_shoot.power`.
+- `gravity = s[5]` **solo si `s[4] === 0`** (viento horizontal nulo). Si hay
+  viento, la muestra se usa para `powerScale` pero no para gravedad. `s[5]` es la
+  aceleración vertical **efectiva**: si hubiera viento vertical, `s[4]` podría
+  ser 0 y `s[5]` incluir ese componente; se acepta como gravedad efectiva de la
+  sala. Para AIRE=0 estricto hay que validar con viento total 0.
+- Mediana de las últimas 8 muestras (`powerScale` y `gravity`) para resistir
+  outliers y cambios de sala.
+- Fallback inicial: `2.269`, `390`, origen Armor `(a=20.45, c=25.83)`.
+- Origen opcional: `calibrateOrigin:true` resuelve `(a,c)` desde
+  `play.s[0]/s[1]`; desactivado por defecto porque `s` llega redondeado a píxel.
+- `resetPhysics()` al cambiar de sala/reconectar; conserva los orígenes por móvil.
+- `originFor(player, body, look, mobile)` aplica el espejo de `look` y la
+  rotación de `body`.
+
+API mínima:
+
+```js
+const cal = new DragonShotAutoCalibration.AutoCalibration();
+cal.observeGameShoot(gameShootRaw, { mobile: '/static/images/mobiles/Armor2D.png' });
+cal.observePlay(playRaw);
+const profile = cal.getProfile('/static/images/mobiles/Armor2D.png');
+// profile.powerScale, profile.gravity, profile.origin, profile.samples
+```
+
+Pruebas: `extension/test/auto-calibration.test.html`.
+Resultado actual: **14/14**. Cubren `look=0`, `look=1`, parseo de ambos
+opcodes (`:` y `0x07`), `play` con metadatos, `play` ajeno, viento horizontal,
+reset, origen opcional, espejo del origen con `body` y callback.
+
+#### Resultado con los cuatro disparos
+
+| Disparo | `power` | `s[3]` | `v0/power` | `s[4]` | `s[5]` |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 195 | 461 | 2.36410 | 0 | 402 |
+| 2 | 250 | 591 | 2.36400 | 0 | 402 |
+| 3 | 240 | 567 | 2.36250 | 0 | 402 |
+| 4 | 223 | 527 | 2.36323 | 0 | 402 |
+
+Mediana: `powerScale = 2.3636143497757846`, `gravity = 402`. La muestra
+`look=1` previa (`power=175`, `s[3]=397`, `s[5]=390`) sigue dando `2.26857` y
+`390`, así que el módulo conserva ambos perfiles sin mezclarlos.
+
+> **Decisión:** el perfil live **no** se fija a `2.269/390`. Esos valores quedan
+> como respaldo hasta el primer `play` propio; después manda la mediana observada.
+> Esto cubre cambios de sala, versión del servidor o bonificaciones de cuenta sin
+> hardcodear una constante que ya se demostró variable.
 
 ---
 
@@ -655,3 +1313,6 @@ La extensión no debe presentar valores estimados como confirmados.
 - `DragonSocket` → `1023989.js:51356-51412`
 - `play` (servidor) → `src/game/lib/message.js:431-451`
 - Opcodes → `src/game/gametypes.js` (`SERVER_OPCODE`, `CLIENT_OPCODE`)
+- Captura live 2026-10-20 → `wss://s3qu3nc3dis0rdred.dragon.ws/6`, XOR
+  `0xA5`/`0xDB`, `game_shoot=0x07` (server 6) / `0x3A` (server 5), `play=0x06`
+  (ver §16.8 y §16.9)

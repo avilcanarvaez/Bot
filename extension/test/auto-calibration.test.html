@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>DragonShot — pruebas de auto-calibración</title>
+  <style>
+    body { font: 14px/1.4 monospace; margin: 24px; background: #111; color: #eee; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>DragonShot — auto-calibración</h1>
+  <p>Las pruebas usan payloads reales de <code>game_shoot</code>/<code>play</code> sin token de sesión.</p>
+  <pre id="results">Ejecutando…</pre>
+
+  <script src="../src/auto-calibration.js"></script>
+  <script src="fixtures/captured-shots.js"></script>
+  <script src="auto-calibration.test.js"></script>
+</body>
+</html>

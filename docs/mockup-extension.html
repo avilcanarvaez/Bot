@@ -252,12 +252,14 @@
 
           <div class="row"><span class="k">AIRE</span><span class="air">0 <span class="lock">🔒 fijo</span></span></div>
           <div class="hint">VIENTO 8 leído del juego, <b>ignorado</b> (AIRE&nbsp;=&nbsp;0). Se recalcula al mover ángulo u objetivo.</div>
+          <div class="hint"><b>Ctrl + clic derecho:</b> 1.º fija <b>ORIGEN</b> y se redirige a tu cañón; 2.º fija <b>DESTINO</b>. Otro clic mueve el destino. <kbd>Esc</kbd> limpia.</div>
           <div class="btns">
             <button class="btn sim">SIMULAR</button>
             <button class="btn clr">Limpiar</button>
           </div>
         </div>
 
+        <div class="tag" style="left:292px;top:328px;color:#d9fbff;background:rgba(6,20,28,.85);border:1px solid rgba(34,211,238,.45)">ORIGEN · cañón</div>
         <div class="tag tgt">OBJETIVO · (780, 482)</div>
         <div class="tag cur">con 200 → (874, 515) · se pasa</div>
 
@@ -287,8 +289,8 @@
   <div class="legend">
     <div><span class="n">1</span><span><b>Trayectoria actual (AIRE=0):</b> parábola con tu potencia real, física exacta del juego (weight 398, potencia×2.34, t/485).</span></div>
     <div><span class="n sol">2</span><span><b class="sol">Trayectoria solución:</b> la que impacta en el objetivo marcado. Verde = "esta da".</span></div>
-    <div><span class="n">3</span><span><b>Origen real:</b> boca del cañón (mundo + offsets del móvil, rotado por <code>body</code>).</span></div>
-    <div><span class="n sol">4</span><span><b class="sol">Objetivo:</b> punto marcado (rival). Aquí es donde quieres que caiga.</span></div>
+    <div><span class="n">3</span><span><b>Origen real:</b> boca del cañón (mundo + offsets del móvil, rotado por <code>body</code>). Se fija con el primer <b>Ctrl + clic derecho</b> y el marcador se redirige al cañón.</span></div>
+    <div><span class="n sol">4</span><span><b class="sol">Objetivo:</b> punto marcado con el segundo <b>Ctrl + clic derecho</b> (rival o mapa). Aquí es donde quieres que caiga.</span></div>
     <div><span class="n sol">5</span><span><b class="sol">Potencia necesaria:</b> el dato que faltaba. Resuelve la balística inversa para tu ángulo actual: <b>181</b>.</span></div>
     <div><span class="n">6</span><span><b>Estado del enlace:</b> WebSocket y Pixi detectados, y de quién es el turno.</span></div>
     <div style="grid-column:1 / -1"><span class="n sol">7</span><span><b class="sol">Barra de potencia con dos marcas:</b> <span style="color:#22d3ee">actual (200)</span> y <span style="color:#34d399">necesaria (181)</span>. También puedes pedir el <b>ángulo necesario</b> para la potencia que tengas.</span></div>

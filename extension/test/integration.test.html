@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>DragonShot — integración hook + overlay</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1a22; }
+    body { font: 13px/1.4 monospace; }
+    #game { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+    #results {
+      position: fixed; left: 12px; bottom: 12px; z-index: 2147483647;
+      max-width: min(680px, calc(100vw - 24px)); max-height: 46vh; overflow: auto;
+      margin: 0; padding: 10px 12px; border-radius: 10px;
+      background: rgba(6, 20, 28, .94); color: #eafcff;
+      border: 1px solid rgba(34, 211, 238, .38);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+      pointer-events: auto; white-space: pre-wrap;
+    }
+    #results .ok { color: #34d399; }
+    #results .bad { color: #fb7185; }
+  </style>
+</head>
+<body>
+  <div id="Dragon2D" style="position: fixed; inset: 0;">
+    <canvas id="game" width="1257" height="943"></canvas>
+  </div>
+  <div id="powerBar" style="position:fixed;left:-9999px;width:195px"></div>
+  <div id="powerMarkArea" style="position:fixed;left:100px;bottom:20px;width:666px;height:36px;pointer-events:none"></div>
+  <div id="powerMarks" style="position:fixed;left:100px;bottom:20px;width:666px;height:36px;pointer-events:none"></div>
+  <div id="last_power_mark" style="position:fixed;left:-9999px;top:-9999px;left:442px"></div>
+  <pre id="results">Ejecutando integración…</pre>
+
+  <script src="../src/auto-calibration.js"></script>
+  <script>
+    // WebSocket falso ANTES del page-hook: el hook lo envuelve como al nativo.
+    (function () {
+      'use strict';
+      class FakeWebSocket {
+        constructor(url) {
+          this.url = url;
+          this._listeners = {};
+          this.sent = [];
+        }
+        addEventListener(type, fn) {
+          (this._listeners[type] = this._listeners[type] || []).push(fn);
+        }
+        send(data) {
+          this.sent.push(data);
+        }
+        _emit(type, event) {
+          (this._listeners[type] || []).forEach(function (fn) {
+            fn(Object.assign({ type: type }, event));
+          });
+        }
+      }
+      window.WebSocket = FakeWebSocket;
+      window.__DS_FAKE_WS__ = FakeWebSocket;
+    })();
+  </script>
+  <script src="../src/page-hook.js"></script>
+  <script>
+    // Pixi falso DESPUÉS del page-hook: el accessor de window.PIXI ya existe.
+    (function () {
+      'use strict';
+      const canvas = document.getElementById('game');
+      const zoom = 1.5716667;
+
+      class FakeApplication {
+        constructor() {
+          const root = { scale: { x: zoom }, children: [] };
+          const world = { x: 0, y: 0, children: [] };
+          const player = {
+            x: 793,
+            y: 118,
+            look: 1,
+            body_angle: -17,
+            angle: { rotation: 55 * Math.PI / 180 },
+            is_turn: true,
+            mobile: 'Armor2D.png',
+            player_info: { is_me: true, is_turn: true, mobile: 'Armor2D.png' },
+            parent: world,
+            worldTransform: { tx: 0, ty: 0 },
+          };
+          world.x = window.innerWidth / 2 / zoom - player.x;
+          world.y = window.innerHeight / 2 / zoom - player.y;
+          player.worldTransform.tx = zoom * (player.x + world.x);
+          player.worldTransform.ty = zoom * (player.y + world.y);
+          world.children.push(player);
+          root.children.push(world);
+          this.stage = { children: [root] };
+          this.canvas = canvas;
+          this.renderer = { view: canvas };
+          this.player = player;
+        }
+      }
+
+      window.PIXI = { Application: FakeApplication };
+      window.__DS_TEST_APP__ = new PIXI.Application();
+      window.__DS_TEST_PLAYER__ = window.__DS_TEST_APP__.player;
+    })();
+  </script>
+  <script>
+    // Stub del puente chrome.runtime para probar el botón del icono sin
+    // depender de un service worker real en la página de test.
+    window.__DS_FAKE_MESSAGE__ = null;
+    window.chrome = {
+      runtime: {
+        onMessage: {
+          addListener: function (fn) { window.__DS_FAKE_MESSAGE__ = fn; },
+        },
+      },
+    };
+    window.__DS_TEST_MODE__ = true;
+  </script>
+  <script src="../src/content.js"></script>
+  <script>
+    (async function () {
+      'use strict';
+      const results = [];
+      const wait = function (ms) {
+        return new Promise(function (resolve) { setTimeout(resolve, ms); });
+      };
+      const assert = function (name, ok, detail) {
+        results.push({ name: name, ok: !!ok, detail: detail || null });
+      };
+      const panelText = function () {
+        const host = document.getElementById('dragonshot-extension-root');
+        const panel = host && host.shadowRoot && host.shadowRoot.querySelector('.ds-panel');
+        return panel ? panel.innerText : '';
+      };
+      const encode = function (text, key) {
+        return Array.from(text).map(function (ch) {
+          return String.fromCharCode(ch.charCodeAt(0) ^ key);
+        }).join('');
+      };
+      const toClient = function (snap, world) {
+        const c = snap.canvas;
+        return {
+          x: c.rect.left + (snap.zoom * (world.x + snap.camera.x)) * (c.rect.width / c.width),
+          y: c.rect.top + (snap.zoom * (world.y + snap.camera.y)) * (c.rect.height / c.height),
+        };
+      };
+      const click = function (x, y) {
+        document.getElementById('game').dispatchEvent(new PointerEvent('pointerdown', {
+          button: 2,
+          ctrlKey: true,
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+        }));
+      };
+      const setPlayer = function (patch) {
+        Object.assign(window.__DS_TEST_PLAYER__, patch);
+      };
+      const setAim = async function (look, aimDeg, body) {
+        setPlayer({
+          look: look,
+          body_angle: body,
+          angle: { rotation: aimDeg * Math.PI / 180 },
+        });
+        await wait(260);
+      };
+      const selectAt = function (client) {
+        const canvas = document.getElementById('game');
+        const options = {
+          button: 0,
+          pointerId: 1,
+          clientX: client.x,
+          clientY: client.y,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+        };
+        canvas.dispatchEvent(new PointerEvent('pointerdown', options));
+        canvas.dispatchEvent(new PointerEvent('pointerup', options));
+      };
+      const debugState = function () { return window.__DS_CONTENT_DEBUG__; };
+      const powerArea = function () {
+        return document.querySelector('#powerMarkArea') ||
+          document.querySelector('#powerMarks') ||
+          document.querySelector('#powerBar');
+      };
+      const shoot = function () {
+        const canvas = document.getElementById('game');
+        const rect = canvas.getBoundingClientRect();
+        const options = {
+          button: 0,
+          pointerId: 1,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+        };
+        canvas.dispatchEvent(new PointerEvent('pointerdown', options));
+        canvas.dispatchEvent(new PointerEvent('pointerup', options));
+      };
+
+      try {
+        await wait(400);
+        const snap1 = window.__DS_EXT_HOOK__.snapshot();
+        assert('snapshot del jugador propio', snap1.ok && snap1.me.mobile === 'Armor2D.png', snap1);
+        assert('ángulo efectivo 72°', snap1.me.angAbs === 72, snap1.me);
+        assert('zoom y cámara', Math.abs(snap1.zoom - 1.5716667) < 1e-6, snap1.zoom);
+
+        // La barra en reposo mide 1 px: un clic normal no debe parecer disparo.
+        const powerBar = document.getElementById('powerBar');
+        powerBar.style.width = '1px';
+        shoot();
+        powerBar.style.width = '195px';
+        const idleProfile = window.__DS_EXT_HOOK__.profile();
+        assert('clic sin carga no crea muestra', idleProfile.pending === 0, idleProfile);
+
+        const ws = new WebSocket('wss://test');
+        ws.addEventListener('message', function () {});
+        const play = [8, 0, 793, 118, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          [{ s: [911, -13, 153, 461, 0, 402], time: 1175 }]];
+        shoot();
+        ws._emit('message', { data: encode('\x06' + JSON.stringify(play), 0xDB) });
+        await wait(350);
+
+        const profile = window.__DS_EXT_HOOK__.profile();
+        assert('auto-calibración powerScale', Math.abs(profile.powerScale - 2.364102564102564) < 1e-9, profile);
+        assert('auto-calibración gravedad', profile.gravity === 402, profile);
+        assert('muestra de potencia', profile.samples.power === 1, profile.samples);
+
+        const snap2 = window.__DS_EXT_HOOK__.snapshot();
+        const own = toClient(snap2, { x: snap2.me.x, y: snap2.me.y });
+        const target = toClient(snap2, { x: snap2.me.x + 250, y: snap2.me.y + 10 });
+        click(own.x, own.y);
+        await wait(120);
+        assert('primer clic fija origen', panelText().indexOf('ORIGEN FIJADO') >= 0, panelText());
+
+        click(target.x, target.y);
+        await wait(220);
+        const panel = panelText();
+        assert('segundo clic fija destino', panel.indexOf('1043, 128') >= 0, panel);
+        assert('potencia necesaria 166', panel.indexOf('166 / 400') >= 0, panel);
+        assert('calibración visible', panel.indexOf('CALIBRADO (1)') >= 0, panel);
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(120);
+        assert('Esc limpia destino', panelText().indexOf('SIN DESTINO') >= 0, panelText());
+
+        const room = [1, 44, 'Test room', 0, 8, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 20, 0, 0, 0, 0];
+        ws._emit('message', { data: encode('\x05' + JSON.stringify(room), 0xDB) });
+        await wait(220);
+        const profile2 = window.__DS_EXT_HOOK__.profile();
+        assert('room_state vuelve a fallback', profile2.samples.power === 0, profile2.samples);
+        assert('room_state limpia destino', panelText().indexOf('SIN DESTINO') >= 0, panelText());
+
+        // Modo persistente: el botón arma una capa visual que NO bloquea el
+        // ratón. Los mousemove llegan al juego para apuntar y el clic final se
+        // intercepta en window (captura), sin que el canvas lo reciba.
+        const host = document.getElementById('dragonshot-extension-root');
+        const shadow = host.shadowRoot;
+        const selectButton = shadow.getElementById('ds-select');
+        const layer = shadow.querySelector('.ds-select-layer');
+        const snap3 = window.__DS_EXT_HOOK__.snapshot();
+        const target3 = toClient(snap3, { x: snap3.me.x + 250, y: snap3.me.y + 10 });
+        selectButton.click();
+        await wait(100);
+        assert('modo selección activo', layer.classList.contains('on') &&
+          selectButton.textContent.indexOf('Cancelar') >= 0, selectButton.textContent);
+        assert('capa de selección deja pasar el ratón',
+          getComputedStyle(layer).pointerEvents === 'none', getComputedStyle(layer).pointerEvents);
+        assert('el destino está sobre el canvas, no sobre la capa',
+          document.elementFromPoint(target3.x, target3.y).id === 'game',
+          document.elementFromPoint(target3.x, target3.y));
+
+        let gameDown = 0;
+        let gameUp = 0;
+        const gameCanvas = document.getElementById('game');
+        const countDown = function () { gameDown++; };
+        const countUp = function () { gameUp++; };
+        gameCanvas.addEventListener('pointerdown', countDown);
+        gameCanvas.addEventListener('pointerup', countUp);
+        selectAt(target3);
+        await wait(260);
+        gameCanvas.removeEventListener('pointerdown', countDown);
+        gameCanvas.removeEventListener('pointerup', countUp);
+        assert('clic en selección fija destino', /1043, 12[78]/.test(panelText()), panelText());
+        assert('clic de selección no llega al canvas', gameDown === 0 && gameUp === 0,
+          { down: gameDown, up: gameUp });
+        assert('modo selección se desactiva', !layer.classList.contains('on') &&
+          selectButton.textContent.indexOf('Seleccionar') >= 0, selectButton.textContent);
+        assert('la selección deja destino válido', debugState() &&
+          debugState().solution && debugState().solution.ok, debugState());
+
+        // Destino a la derecha con look=1: el ángulo de salida 20° debe dar
+        // una solución positiva (antes se confundía con "OBJETIVO DETRÁS").
+        await setAim(1, 20, 0);
+        const snapRight = window.__DS_EXT_HOOK__.snapshot();
+        const targetRight = toClient(snapRight, { x: snapRight.me.x + 250, y: snapRight.me.y + 10 });
+        selectButton.click();
+        await wait(80);
+        selectAt(targetRight);
+        await wait(280);
+        let stateRight = debugState();
+        assert('look=1 resuelve destino derecho', stateRight && stateRight.solution &&
+          stateRight.solution.ok, { state: stateRight, panel: panelText() });
+        assert('look=1 origen a la derecha', stateRight && stateRight.origin.x > 793,
+          stateRight && stateRight.origin);
+        assert('trayectoria derecha empieza en el origen', stateRight && stateRight.trajectory &&
+          stateRight.trajectory.points.length > 2 &&
+          Math.abs(stateRight.trajectory.start.x - stateRight.originClient.x) < 2,
+          stateRight && stateRight.trajectory && stateRight.trajectory.start);
+        const areaRight = powerArea().getBoundingClientRect();
+        assert('marca de potencia derecha visible', stateRight && stateRight.marker &&
+          stateRight.marker.x >= areaRight.left && stateRight.marker.x <= areaRight.right &&
+          stateRight.marker.x > 0 && stateRight.marker.x < window.innerWidth,
+          { marker: stateRight && stateRight.marker, area: areaRight.toJSON() });
+        const overlayCanvas = shadow.querySelector('.ds-canvas');
+        const overlayCtx = overlayCanvas.getContext('2d');
+        const ratio = overlayCanvas.width / window.innerWidth;
+        const markerPixel = overlayCtx.getImageData(
+          Math.round(stateRight.marker.x * ratio),
+          Math.round((stateRight.marker.top + 5) * ratio), 1, 1).data;
+        assert('marca de potencia dibujada en el canvas', markerPixel[3] > 0,
+          { pixel: Array.from(markerPixel) });
+
+        // Destino a la izquierda con look=0: el origen debe espejarse a la
+        // izquierda del móvil y la trayectoria también.
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(80);
+        await setAim(0, 200, 0);
+        const snapLeft = window.__DS_EXT_HOOK__.snapshot();
+        const targetLeft = toClient(snapLeft, { x: snapLeft.me.x - 250, y: snapLeft.me.y + 10 });
+        selectButton.click();
+        await wait(80);
+        selectAt(targetLeft);
+        await wait(280);
+        const stateLeft = debugState();
+        assert('look=0 resuelve destino izquierdo', stateLeft && stateLeft.solution &&
+          stateLeft.solution.ok, { state: stateLeft, panel: panelText() });
+        assert('look=0 origen a la izquierda', stateLeft &&
+          stateLeft.origin.x < snapLeft.me.x, stateLeft && stateLeft.origin);
+        assert('trayectoria izquierda empieza a la izquierda', stateLeft &&
+          stateLeft.trajectory && stateLeft.trajectory.points.length > 2 &&
+          stateLeft.trajectory.start.x < stateLeft.originClient.x + 2,
+          stateLeft && stateLeft.trajectory && stateLeft.trajectory.start);
+        const areaLeft = powerArea().getBoundingClientRect();
+        assert('marca de potencia izquierda visible', stateLeft && stateLeft.marker &&
+          stateLeft.marker.x >= areaLeft.left && stateLeft.marker.x <= areaLeft.right &&
+          stateLeft.marker.x > 0 && stateLeft.marker.x < window.innerWidth,
+          { marker: stateLeft && stateLeft.marker, area: areaLeft.toJSON() });
+
+        // Combinaciones cruzadas: el origen depende de `look`, la trayectoria
+        // depende del ángulo. look=0 puede disparar a la derecha y look=1 a la
+        // izquierda; el origen no debe confundirse con el lado del destino.
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(80);
+        await setAim(0, 0, 0);
+        const snapCrossRight = window.__DS_EXT_HOOK__.snapshot();
+        const targetCrossRight = toClient(snapCrossRight,
+          { x: snapCrossRight.me.x + 250, y: snapCrossRight.me.y + 10 });
+        selectButton.click();
+        await wait(80);
+        selectAt(targetCrossRight);
+        await wait(280);
+        const crossRight = debugState();
+        assert('look=0 dispara a la derecha', crossRight && crossRight.solution &&
+          crossRight.solution.ok && crossRight.trajectory &&
+          crossRight.trajectory.vx > 0, { state: crossRight, panel: panelText() });
+        assert('look=0 mantiene el origen a la izquierda', crossRight &&
+          crossRight.origin.x < snapCrossRight.me.x, crossRight && crossRight.origin);
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(80);
+        await setAim(1, 160, 0);
+        const snapCrossLeft = window.__DS_EXT_HOOK__.snapshot();
+        const targetCrossLeft = toClient(snapCrossLeft,
+          { x: snapCrossLeft.me.x - 250, y: snapCrossLeft.me.y + 10 });
+        selectButton.click();
+        await wait(80);
+        selectAt(targetCrossLeft);
+        await wait(280);
+        const crossLeft = debugState();
+        assert('look=1 dispara a la izquierda', crossLeft && crossLeft.solution &&
+          crossLeft.solution.ok && crossLeft.trajectory &&
+          crossLeft.trajectory.vx < 0, { state: crossLeft, panel: panelText() });
+        assert('look=1 mantiene el origen a la derecha', crossLeft &&
+          crossLeft.origin.x > snapCrossLeft.me.x, crossLeft && crossLeft.origin);
+
+        // Restaurar el jugador para no afectar las pruebas de acoplamiento.
+        await setAim(1, 55, -17);
+
+        // Con margen fuera del canvas, el panel se acopla allí y no lo tapa.
+        const game = document.getElementById('game');
+        game.style.width = 'calc(100vw - 240px)';
+        await wait(260);
+        const snap4 = window.__DS_EXT_HOOK__.snapshot();
+        const panel4 = shadow.querySelector('.ds-panel').getBoundingClientRect();
+        assert('panel acoplado fuera del canvas',
+          panel4.left >= snap4.canvas.rect.right || panel4.right <= snap4.canvas.rect.left,
+          { panel: panel4.toJSON(), canvas: snap4.canvas.rect });
+
+        const panelEl = shadow.querySelector('.ds-panel');
+        window.__DS_FAKE_MESSAGE__({ type: 'dragonshot-toggle-panel' }, {}, function () {});
+        await wait(60);
+        assert('icono oculta el panel', panelEl.classList.contains('hidden'));
+        window.__DS_FAKE_MESSAGE__({ type: 'dragonshot-toggle-panel' }, {}, function () {});
+        await wait(60);
+        assert('icono vuelve a mostrar el panel', !panelEl.classList.contains('hidden'));
+      } catch (error) {
+        results.push({ name: 'excepción', ok: false, detail: String(error && error.stack || error) });
+      }
+
+      window.__DS_INTEGRATION_RESULTS = results;
+      const failed = results.filter(function (item) { return !item.ok; });
+      document.getElementById('results').innerHTML = results.map(function (item) {
+        return '<span class="' + (item.ok ? 'ok' : 'bad') + '">' +
+          (item.ok ? 'PASS' : 'FAIL') + '</span> ' + item.name;
+      }).join('\n') + '\n\n' + (failed.length ? failed.length + ' fallo(s)' : results.length + '/' + results.length + ' OK');
+    })();
+  </script>
+</body>
+</html>

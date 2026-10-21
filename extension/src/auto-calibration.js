@@ -1,0 +1,447 @@
+/*
+ * DragonShot — auto-calibración de física live.
+ *
+ * Entrada:
+ *   - payload descifrado de `game_shoot` (cliente -> servidor)
+ *   - payload descifrado de `play` (servidor -> cliente), índice 15
+ *
+ * El módulo no conoce DOM, WebSocket ni Pixi. Es intencionalmente puro para
+ * poder probarlo con los payloads capturados y para reutilizarlo desde el
+ * content script de la extensión.
+ *
+ * Perfil de respaldo:
+ *   v0 = power * 2.269
+ *   gravedad = 390
+ *   origen Armor = (a=20.45, c=25.83)  -> offset en body=0: (20.45, -25.83)
+ *
+ * La auto-calibración reemplaza `powerScale` y `gravity` con la mediana de las
+ * muestras observadas. El origen queda desactivado por defecto porque
+ * `play.s[0]/s[1]` llega redondeado a píxel y podría empeorar la calibración
+ * fina ya medida; se expone `calibrateOrigin` para diagnóstico.
+ */
+(function (root) {
+  'use strict';
+
+  const DEFAULT_PROFILE = Object.freeze({
+    powerScale: 2.269,
+    gravity: 390,
+    // Parámetros locales (a, c) de la fórmula:
+    //   dx = a*cos(theta) + c*sin(theta)
+    //   dy = a*sin(theta) - c*cos(theta)
+    // En body=0 el offset world es (a, -c) = (20.45, -25.83).
+    origin: Object.freeze({ a: 20.45, c: 25.83 }),
+  });
+
+  const DEFAULTS = Object.freeze({
+    maxShotAgeMs: 15000,
+    windowSize: 8,
+    minPower: 1,
+    maxPower: 400,
+    minPowerScale: 1.5,
+    maxPowerScale: 3.5,
+    gravityRequiresZeroWind: true,
+    calibrateOrigin: false,
+  });
+
+  function asNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function median(values) {
+    if (!values || values.length === 0) return null;
+    const sorted = values.slice().sort((a, b) => a - b);
+    const mid = sorted.length >> 1;
+    return sorted.length % 2
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  function normalizeMobile(mobile) {
+    return mobile ? String(mobile) : 'unknown';
+  }
+
+  /**
+   * Separa por `sep` ignorando comas dentro de arrays, objetos y strings.
+   */
+  function splitTopLevel(text, sep) {
+    const out = [];
+    let start = 0;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === '\\') {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === '[' || ch === '{') {
+        depth++;
+      } else if (ch === ']' || ch === '}') {
+        depth--;
+      } else if (ch === sep && depth === 0) {
+        out.push(text.slice(start, i));
+        start = i + 1;
+      }
+    }
+    out.push(text.slice(start));
+    return out;
+  }
+
+  /**
+   * Quita el byte de opcode del payload descifrado. El live usa `:` (0x3A) en
+   * server 5 y `\x07` en server 6. También acepta payloads que ya empiezan
+   * por el dato (por ejemplo, un array JSON).
+   */
+  function stripOpcode(text) {
+    const s = String(text == null ? '' : text).trim();
+    if (!s) return s;
+    const first = s[0];
+    if (first === '[' || first === '{' || first === '-' || (first >= '0' && first <= '9')) {
+      return s;
+    }
+    return s.slice(1).trim();
+  }
+
+  function parseGameShoot(raw) {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const shot = {
+        x: asNumber(raw.x),
+        y: asNumber(raw.y),
+        body: asNumber(raw.body),
+        look: asNumber(raw.look),
+        ang: asNumber(raw.ang),
+        power: asNumber(raw.power),
+        time: asNumber(raw.time),
+        selectedShot: asNumber(raw.selectedShot),
+        extra: raw.extra,
+      };
+      validateShot(shot);
+      return shot;
+    }
+
+    const text = stripOpcode(raw);
+    const fields = splitTopLevel(text, ',');
+    if (fields.length < 8) {
+      throw new Error('game_shoot: se esperaban >= 8 campos, llegaron ' + fields.length);
+    }
+    const shot = {
+      x: asNumber(fields[0]),
+      y: asNumber(fields[1]),
+      body: asNumber(fields[2]),
+      look: asNumber(fields[3]),
+      ang: asNumber(fields[4]),
+      power: asNumber(fields[5]),
+      time: asNumber(fields[6]),
+      selectedShot: asNumber(fields[7]),
+      extra: fields.slice(8).join(',').trim() || null,
+      raw: text,
+    };
+    validateShot(shot);
+    return shot;
+  }
+
+  function validateShot(shot) {
+    for (const key of ['x', 'y', 'body', 'look', 'ang', 'power', 'time']) {
+      if (shot[key] === null) {
+        throw new Error('game_shoot: campo inválido ' + key);
+      }
+    }
+    if (shot.look !== 0 && shot.look !== 1) {
+      throw new Error('game_shoot: look inválido ' + shot.look);
+    }
+  }
+
+  /**
+   * Extrae el primer array JSON balanceado. El live añade metadatos después del
+   * array (por ejemplo `...,137330`), por eso no se puede usar JSON.parse
+   * directo sobre todo el payload.
+   */
+  function extractJsonArray(text) {
+    const s = String(text == null ? '' : text);
+    const start = s.indexOf('[');
+    if (start < 0) throw new Error('play: no contiene un array JSON');
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < s.length; i++) {
+      const ch = s[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === '\\') {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === '[' || ch === '{') {
+        depth++;
+      } else if (ch === ']' || ch === '}') {
+        depth--;
+        if (depth === 0) return s.slice(start, i + 1);
+        if (depth < 0) break;
+      }
+    }
+    throw new Error('play: array JSON incompleto');
+  }
+
+  function parsePlay(raw) {
+    if (Array.isArray(raw)) {
+      if (raw[0] === 6 && Array.isArray(raw[1])) return raw[1];
+      return raw;
+    }
+    const text = stripOpcode(raw);
+    const json = extractJsonArray(text);
+    const parsed = JSON.parse(json);
+    if (parsed && parsed[0] === 6 && Array.isArray(parsed[1])) return parsed[1];
+    return parsed;
+  }
+
+  /**
+   * Resuelve (a, c) a partir de la posición del jugador y del origen que envió
+   * el servidor. Solo se usa si `calibrateOrigin` está activo.
+   */
+  function solveOrigin(shot, s) {
+    let dx = asNumber(s[0]) - shot.x;
+    const dy = asNumber(s[1]) - shot.y;
+    if (dx === null || dy === null) return null;
+    if (shot.look === 0) dx = -dx;
+
+    const theta = (shot.body || 0) * Math.PI / 180;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    const a = dx * cos + dy * sin;
+    const c = dx * sin - dy * cos;
+
+    if (!Number.isFinite(a) || !Number.isFinite(c)) return null;
+    // Límite amplio: descarta datos corruptos, no pretende validar móviles.
+    if (Math.abs(a) > 100 || Math.abs(c) > 100) return null;
+    return { a: a, c: c };
+  }
+
+  class AutoCalibration {
+    constructor(options) {
+      this.options = Object.assign({}, DEFAULTS, options || {});
+      this.now = this.options.now || function () { return Date.now(); };
+      this.onChange = this.options.onChange || null;
+
+      this.pendingShots = [];
+      this.powerSamples = [];
+      this.gravitySamples = [];
+      this.origins = new Map();
+      this.last = null;
+    }
+
+    /**
+     * Registra un disparo propio. `meta.mobile` es opcional y solo se usa para
+     * la calibración opcional del origen.
+     */
+    observeGameShoot(raw, meta) {
+      const shot = parseGameShoot(raw);
+      if (shot.power < this.options.minPower || shot.power > this.options.maxPower) {
+        return null;
+      }
+      shot.mobile = normalizeMobile((meta && meta.mobile) || shot.mobile);
+      shot.at = this.now();
+      this.pendingShots.push(shot);
+      if (this.pendingShots.length > this.options.windowSize) {
+        this.pendingShots.shift();
+      }
+      return shot;
+    }
+
+    /**
+     * Procesa un `play` y, si corresponde a un disparo propio pendiente,
+     * actualiza la calibración. Devuelve un objeto con el resultado.
+     */
+    observePlay(raw) {
+      const play = parsePlay(raw);
+      if (!Array.isArray(play)) {
+        return { matched: false, calibrated: false, reason: 'play-no-array' };
+      }
+
+      const x = asNumber(play[2]);
+      const y = asNumber(play[3]);
+      const look = asNumber(play[4]);
+      const now = this.now();
+
+      let matchIndex = -1;
+      for (let i = this.pendingShots.length - 1; i >= 0; i--) {
+        const shot = this.pendingShots[i];
+        if (shot.x === x && shot.y === y && shot.look === look &&
+            (now - shot.at) <= this.options.maxShotAgeMs) {
+          matchIndex = i;
+          break;
+        }
+      }
+      if (matchIndex < 0) {
+        return { matched: false, calibrated: false, reason: 'sin-disparo-propio-pendiente' };
+      }
+
+      const shot = this.pendingShots.splice(matchIndex, 1)[0];
+      const data = Array.isArray(play[15]) ? play[15] : [];
+      const entry = data.find(function (item) {
+        return item && Array.isArray(item.s) && item.s.length >= 6 &&
+          !item.thor && (item.time == null || item.time > 0);
+      }) || data.find(function (item) {
+        return item && Array.isArray(item.s) && item.s.length >= 6;
+      });
+
+      if (!entry) {
+        return { matched: true, calibrated: false, shot: shot, reason: 'play-sin-datos-fisicos' };
+      }
+
+      const s = entry.s;
+      const v0 = asNumber(s[3]);
+      const windX = asNumber(s[4]);
+      const vertAccel = asNumber(s[5]);
+      const powerScale = v0 === null ? null : v0 / shot.power;
+
+      if (powerScale === null || !Number.isFinite(powerScale) ||
+          powerScale < this.options.minPowerScale ||
+          powerScale > this.options.maxPowerScale) {
+        return { matched: true, calibrated: false, shot: shot, reason: 'power-scale-fuera-de-rango', s: s };
+      }
+
+      this.powerSamples.push(powerScale);
+      if (this.powerSamples.length > this.options.windowSize) this.powerSamples.shift();
+
+      let gravityUpdated = false;
+      if (vertAccel !== null && vertAccel > 0 &&
+          (!this.options.gravityRequiresZeroWind || windX === 0)) {
+        this.gravitySamples.push(vertAccel);
+        if (this.gravitySamples.length > this.options.windowSize) this.gravitySamples.shift();
+        gravityUpdated = true;
+      }
+
+      let origin = null;
+      let originUpdated = false;
+      if (this.options.calibrateOrigin) {
+        origin = solveOrigin(shot, s);
+        if (origin) {
+          const mobile = normalizeMobile(shot.mobile);
+          const bucket = this.origins.get(mobile) || { a: [], c: [] };
+          bucket.a.push(origin.a);
+          bucket.c.push(origin.c);
+          if (bucket.a.length > this.options.windowSize) bucket.a.shift();
+          if (bucket.c.length > this.options.windowSize) bucket.c.shift();
+          this.origins.set(mobile, bucket);
+          originUpdated = true;
+        }
+      }
+
+      const delta = {
+        powerScale: powerScale,
+        v0: v0,
+        windX: windX,
+        vertAccel: vertAccel,
+        gravityUpdated: gravityUpdated,
+        origin: origin,
+        originUpdated: originUpdated,
+        s: s,
+      };
+      this.last = { shot: shot, entry: entry, delta: delta, at: now };
+
+      const profile = this.getProfile(shot.mobile);
+      if (this.onChange) this.onChange(profile, delta);
+      return { matched: true, calibrated: true, shot: shot, entry: entry, delta: delta, profile: profile };
+    }
+
+    getOrigin(mobile) {
+      const bucket = this.origins.get(normalizeMobile(mobile));
+      if (!bucket || bucket.a.length === 0) return null;
+      return {
+        a: median(bucket.a),
+        c: median(bucket.c),
+        samples: bucket.a.length,
+      };
+    }
+
+    getProfile(mobile) {
+      const key = normalizeMobile(mobile || (this.last && this.last.shot.mobile) || 'Armor2D.png');
+      const powerScale = median(this.powerSamples);
+      const gravity = median(this.gravitySamples);
+      const calibratedOrigin = this.getOrigin(key);
+      const origin = calibratedOrigin || {
+        a: DEFAULT_PROFILE.origin.a,
+        c: DEFAULT_PROFILE.origin.c,
+      };
+
+      return {
+        powerScale: powerScale === null ? DEFAULT_PROFILE.powerScale : powerScale,
+        gravity: gravity === null ? DEFAULT_PROFILE.gravity : gravity,
+        origin: { a: origin.a, c: origin.c },
+        offsetAtBody0: { x: origin.a, y: -origin.c },
+        source: powerScale === null ? 'fallback' : 'observed',
+        originCalibrated: !!calibratedOrigin,
+        samples: {
+          power: this.powerSamples.length,
+          gravity: this.gravitySamples.length,
+          origin: calibratedOrigin ? calibratedOrigin.samples : 0,
+        },
+        pending: this.pendingShots.length,
+      };
+    }
+
+    /**
+     * Origen del cañón para el jugador y cuerpo actuales.
+     * `player` usa coordenadas de mundo; `body` está en grados; `look` es 0/1.
+     */
+    originFor(player, body, look, mobile) {
+      const profile = this.getProfile(mobile);
+      const theta = (body || 0) * Math.PI / 180;
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      const a = profile.origin.a;
+      const c = profile.origin.c;
+      let dx = a * cos + c * sin;
+      const dy = a * sin - c * cos;
+      if (look === 0) dx = -dx;
+      return { x: player.x + dx, y: player.y + dy };
+    }
+
+    /**
+     * Se llama al cambiar de sala o al reconectar. Mantiene los orígenes por
+     * móvil porque no dependen de la sala.
+     */
+    resetPhysics() {
+      this.pendingShots = [];
+      this.powerSamples = [];
+      this.gravitySamples = [];
+      this.last = null;
+    }
+
+    reset() {
+      this.resetPhysics();
+      this.origins.clear();
+    }
+  }
+
+  const api = {
+    AutoCalibration: AutoCalibration,
+    DEFAULT_PROFILE: DEFAULT_PROFILE,
+    DEFAULTS: DEFAULTS,
+    parseGameShoot: parseGameShoot,
+    parsePlay: parsePlay,
+    median: median,
+    splitTopLevel: splitTopLevel,
+  };
+
+  root.DragonShotAutoCalibration = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
