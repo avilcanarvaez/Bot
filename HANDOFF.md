@@ -10,7 +10,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Diseño de la extensión de navegador | **Documentado**, sin código aún. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 14/14 y 38/38; validación live en curso. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
@@ -106,7 +106,7 @@ out/            build (ignorado por git)
      **HAR con frames de WebSocket** + captura para analizarlo offline.
    - Confirmar: motor (Pixi?), URL del WS, opcodes, constantes (`398`, `2.34`, `485`),
      lectura de `ang`, viewport/CSP.
-2. Implementar la extensión (fases 0–5 del diseño) una vez verificado el perfil.
+2. Validar la extensión en partida real (destinos izquierda/derecha, `look=0/1`, `body ≠ 0`).
 3. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---

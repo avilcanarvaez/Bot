@@ -656,6 +656,72 @@
     return deg;
   }
 
+  /**
+   * Dirección real del cañón, en grados matemáticos (0 = derecha, 90 = arriba).
+   *
+   * Pixi usa Y hacia abajo y rotación positiva horaria, así que el ángulo
+   * matemático es `-atan2(y, x)`. Se lee el `worldTransform` del nodo `angle`
+   * para incluir el `body` del contenedor y cualquier espejo (`scale.x = -1`)
+   * de la cadena de padres: la columna (a, b) es el eje local +x ya
+   * transformado, es decir, hacia dónde apunta el cañón en pantalla.
+   *
+   * No se resta `body` ni se aplica el espejo de `look` aquí: ambas cosas ya
+   * están en la matriz. Hacerlo producía el ángulo invertido al disparar a la
+   * derecha (`look=1`).
+   */
+  function readAim(me) {
+    const node = me && me.angle;
+    const wt = node && node.worldTransform;
+    if (wt && Number.isFinite(wt.a) && Number.isFinite(wt.b) &&
+        (Math.abs(wt.a) > 1e-9 || Math.abs(wt.b) > 1e-9)) {
+      return {
+        deg: normalizeDeg(-Math.atan2(wt.b, wt.a) * 180 / Math.PI),
+        rotationDeg: normalizeDeg(Math.atan2(wt.b, wt.a) * 180 / Math.PI),
+        source: 'world',
+      };
+    }
+    const rotation = numberOr(node && node.rotation, null);
+    if (rotation === null) return { deg: null, rotationDeg: null, source: null };
+    // Sin worldTransform no se puede componer el padre; se usa la rotación
+    // local como aproximación (misma convención de Pixi).
+    return {
+      deg: normalizeDeg(-rotation * 180 / Math.PI),
+      rotationDeg: normalizeDeg(rotation * 180 / Math.PI),
+      source: 'rotation',
+    };
+  }
+
+  /**
+   * Lado hacia el que mira el móvil (0 = izquierda, 1 = derecha).
+   *
+   * `me.look` es la fuente declarada, pero en vivo puede quedarse atrás
+   * respecto al sprite. El cañón nunca cruza la vertical, así que el signo de
+   * la componente horizontal del apuntado es una señal fiable: si apunta
+   * claramente a la izquierda, el móvil mira a la izquierda. Solo se usa
+   * cuando el apuntado es claramente horizontal (|cos| >= 0.5); cerca de la
+   * vertical manda `look` (o el espejo del contenedor).
+   */
+  function detectLook(me, aimDeg) {
+    const declared = numberOr(me && me.look, null);
+    const declaredLook = declared === 0 || declared === 1 ? declared : null;
+    if (aimDeg != null) {
+      const cos = Math.cos(aimDeg * Math.PI / 180);
+      if (Math.abs(cos) >= 0.5) {
+        const geometric = cos < 0 ? 0 : 1;
+        return {
+          look: geometric,
+          source: declaredLook != null && declaredLook !== geometric
+            ? 'aim (look=' + declaredLook + ' declarado)'
+            : 'aim',
+        };
+      }
+    }
+    if (declaredLook != null) return { look: declaredLook, source: 'look' };
+    const scaleX = me && me.scale ? numberOr(me.scale.x, null) : null;
+    if (scaleX != null && scaleX < 0) return { look: 0, source: 'scale' };
+    return { look: 1, source: 'default' };
+  }
+
   function readPower() {
     const bar = document.querySelector('#powerBar');
     const last = document.querySelector('#last_power_mark');
@@ -748,12 +814,19 @@
       return;
     }
 
+    // `ang` en `game_shoot` es el ángulo relativo al cuerpo que usa el
+    // cliente (0..90): se reconstruye desde el absoluto, no se envía el
+    // absoluto tal cual.
+    const abs = snap.me.angAbs == null ? 0 : snap.me.angAbs;
+    const clientAng = snap.me.look === 0
+      ? 180 - abs - snap.me.body
+      : abs + snap.me.body;
     const raw = {
       x: snap.me.x,
       y: snap.me.y,
       body: snap.me.body,
       look: snap.me.look,
-      ang: snap.me.angAbs == null ? 0 : snap.me.angAbs,
+      ang: normalizeDeg(clientAng),
       power: Math.round(power),
       time: 0,
       selectedShot: 0,
@@ -852,11 +925,13 @@
     }
 
     const body = numberOr(me.body_angle, numberOr(me.body, 0));
-    const look = numberOr(me.look, 1) === 0 ? 0 : 1;
-    const aimRad = me.angle ? numberOr(me.angle.rotation, null) : null;
-    const aimDeg = aimRad === null ? null : normalizeDeg(aimRad * 180 / Math.PI);
-    const shootAng = aimDeg === null ? null : (look === 0 ? aimDeg - 180 : aimDeg);
-    const angAbs = shootAng === null ? null : normalizeDeg((look === 0 ? 180 - shootAng : shootAng) - body);
+    const aim = readAim(me);
+    const lookInfo = detectLook(me, aim.deg);
+    const look = lookInfo.look;
+    const aimDeg = aim.deg;
+    // `angAbs` es el ángulo absoluto de salida en coordenadas matemáticas
+    // (Y hacia arriba), que es el que usa la física de §7.4.
+    const angAbs = aim.deg;
     const mobile = mobileNameOf(me) || 'unknown';
     const cal = getCalibration();
     const profile = cal ? cal.getProfile(mobile) : null;
@@ -876,9 +951,12 @@
         x: meX,
         y: meY,
         look: look,
+        lookSource: lookInfo.source,
         body: body,
         scaleX: me.scale ? numberOr(me.scale.x, null) : null,
         aimDeg: aimDeg,
+        aimRotation: aim.rotationDeg,
+        aimSource: aim.source,
         angAbs: angAbs,
         mobile: mobile,
         isTurn: isTurn,

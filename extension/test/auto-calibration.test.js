@@ -167,14 +167,22 @@
     approx(right.y, -12.83, 1e-9, 'look=1 y');
   });
 
-  test('originFor espeja el cuerpo completo entre look=0 y look=1', function () {
+  test('originFor espeja el offset local antes de rotar por body', function () {
     const cal = new api.AutoCalibration();
     const left = cal.originFor({ x: 100, y: 100 }, 26, 0, 'Armor2D.png');
     const right = cal.originFor({ x: 100, y: 100 }, 26, 1, 'Armor2D.png');
-    approx(left.x, 100 - 29.703464968379834, 1e-9, 'look=0 x');
-    approx(left.y, 100 - 14.251160264070851, 1e-9, 'look=0 y');
+    // look=1: (a·cos + c·sin, a·sin − c·cos)
     approx(right.x, 100 + 29.703464968379834, 1e-9, 'look=1 x');
-    approx(right.y, left.y, 1e-9, 'misma altura');
+    approx(right.y, 100 - 14.251160264070851, 1e-9, 'look=1 y');
+    // look=0: espejo en X local => (−a·cos + c·sin, −a·sin − c·cos)
+    approx(left.x, 100 - 7.057211525256099, 1e-9, 'look=0 x');
+    approx(left.y, 100 - 32.18054016774411, 1e-9, 'look=0 y');
+    assert(left.x < 100, 'look=0 debe quedar a la izquierda');
+    assert(left.y < right.y, 'el espejo local cambia la altura con body≠0');
+    // Con body=0 el espejo es (−a, −c), como el `s` real de la sala 44.
+    const flatLeft = cal.originFor({ x: 931, y: 13 }, 0, 0, 'Armor2D.png');
+    approx(flatLeft.x, 910.55, 1e-9, 'body=0 look=0 x');
+    approx(flatLeft.y, -12.83, 1e-9, 'body=0 look=0 y');
   });
 
   test('calibrateOrigin opcional resuelve (a,c) desde play.s', function () {

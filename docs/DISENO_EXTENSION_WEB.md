@@ -479,15 +479,21 @@ Constantes medidas (8 disparos; `power` es la potencia 0–400 del cliente):
 > extensión recalibra desde `play` (§16.12).
 
 El ángulo absoluto es `ang_abs = ang - body` (después del espejo por `look`), y el
-origen se obtiene rotando el offset local por `body`:
+origen se obtiene rotando el offset local por `body`. El espejo de `look` se
+aplica al offset **local** antes de rotar (igual que `game.js`, que rota
+`{x: x + dis, y: y − dy}`), no al `dx` ya rotado:
 
 ```text
 θ  = radians(body)
-dx = 20.45·cos(θ) + 25.83·sin(θ)
-dy = 20.45·sin(θ) − 25.83·cos(θ)
+sx = (look == 0) ? −1 : +1
+dx = sx·20.45·cos(θ) + 25.83·sin(θ)
+dy = sx·20.45·sin(θ) − 25.83·cos(θ)
 x0 = player.x + dx
 y0 = player.y + dy
 ```
+
+Con `body = 0` esto da `(±20.45, −25.83)`; espejar solo `dx` después de rotar
+dejaba el origen del lado equivocado (y la altura cambiada) con `body ≠ 0`.
 
 > Los 8 disparos de la calibración se hicieron con `look=1` (mirando a la
 > derecha). La captura posterior de la sala 44 confirmó el espejo `look=0` con
@@ -535,8 +541,11 @@ real** y, si se desea, la **potencia actual**, usando §7 con AIRE = 0.
 - **Origen:** `origen` del cañón (§7.1) desde `player.x/y`, `body`, `look`, móvil.
   Por defecto es automático; el usuario puede fijarlo con `Ctrl + clic derecho`
   (§8.2).
-- **Ángulo:** `PlayerContainer.angle.rotation` (radianes) en vivo; fallback al `ang`
-  del último `game_shoot`. La equivalencia exacta se valida al disparar (§16.10).
+- **Ángulo:** `PlayerContainer.angle.worldTransform` en vivo. La columna `(a, b)`
+  es el eje `+x` del cañón ya transformado por `body` y por cualquier espejo, así
+  que `ang_abs = −atan2(b, a)` en grados matemáticos (Y hacia arriba); no se resta
+  `body` ni se vuelve a espejar por `look`. `angle.rotation` queda solo como
+  respaldo si no hay `worldTransform`. Ver §16.13.
 - **Potencia:** `#powerBar.style.width` (0–400) mientras se carga; tras el disparo,
   `#last_power_mark.style.left − 247`. Si no hay barra activa, barrido/rango si el
   usuario quiere ver varias potencias. Ver §16.11.
@@ -795,7 +804,7 @@ los escenarios G–O y del ciclo de sala/reconexión.
 
 **Fase 5 — Pruebas y endurecimiento**
 - Unitarias + integración con harness mock; escenarios A–F (§12).
-- **Hecho:** 14/14 auto-calibración, 37/37 integración hook→overlay→reset con
+- **Hecho:** 14/14 auto-calibración, 38/38 integración hook→overlay→reset con
   destinos a izquierda/derecha, `look=0/1` y marca de potencia.
 - **Pendiente:** escenarios G–O live, resize/fullscreen, CSP/SRI/ToS.
 
@@ -835,7 +844,7 @@ extension/
 - **Harness mock:** página con WebSocket falso y un `PIXI.Application` falso
   (canvas, cámara, `player_info.is_me`). Valida hook → auto-calibración →
   snapshot → overlay → clic → potencia → `room_state`.
-- **Resultado:** **37/37**; calibración `powerScale=2.3641`, `gravity=402`; panel
+- **Resultado:** **38/38** (ampliado en §16.13); calibración `powerScale=2.3641`, `gravity=402`; panel
   `POTENCIA NECESARIA=166/400` para el destino de prueba; reset por `room_state`;
   selección por capa sin bloquear el ratón, destinos a izquierda/derecha con
   `look=0/1`, marcador de potencia y acoplamiento del panel fuera del canvas
@@ -1090,7 +1099,7 @@ mismo motor funcione con el remake y con el sitio real:
   harness Pixi/WebSocket simulado (calibración `2.364/402`, reset por `room_state`).
 - [ ] Física validada dentro de una partida live (no solo con harness).
 - [x] Selección `Ctrl + clic derecho`, snap al cañón, trayectoria y marca de
-  potencia implementados en `extension/src/content.js`; integración 37/37 con
+  potencia implementados en `extension/src/content.js`; integración 38/38 con
   destinos izquierdo/derecho y `look=0/1`.
 - [ ] Escenarios live G–O, resize/fullscreen y cambio de sala/reconexión.
 - [ ] Restricciones (CSP/SRI/ToS) documentadas.
@@ -1102,7 +1111,7 @@ Tras las capturas del **2026-10-20**, el **protocolo**, la **física live** y **
 están confirmados para producción (opcodes con variantes por servidor). La
 extensión MV3 ya implementa el hook, el overlay y la selección origen/destino, y
 pasó las pruebas de auto-calibración (14/14) y de integración con Pixi/WebSocket
-simulados (37/37). **Las restricciones (CSP/SRI/ToS), la prueba G–O en una partida real y
+simulados (38/38). **Las restricciones (CSP/SRI/ToS), la prueba G–O en una partida real y
 la validación de resize/fullscreen/reconexión** siguen pendientes. Nada se declara
 "funciona en producción" hasta completar esos puntos. La extensión no debe
 presentar valores estimados como confirmados.
@@ -1263,8 +1272,8 @@ Archivo: `extension/src/auto-calibration.js`.
 - Origen opcional: `calibrateOrigin:true` resuelve `(a,c)` desde
   `play.s[0]/s[1]`; desactivado por defecto porque `s` llega redondeado a píxel.
 - `resetPhysics()` al cambiar de sala/reconectar; conserva los orígenes por móvil.
-- `originFor(player, body, look, mobile)` aplica el espejo de `look` y la
-  rotación de `body`.
+- `originFor(player, body, look, mobile)` espeja el offset local por `look` y
+  después lo rota por `body` (§7.4).
 
 API mínima:
 
@@ -1279,7 +1288,7 @@ const profile = cal.getProfile('/static/images/mobiles/Armor2D.png');
 Pruebas: `extension/test/auto-calibration.test.html`.
 Resultado actual: **14/14**. Cubren `look=0`, `look=1`, parseo de ambos
 opcodes (`:` y `0x07`), `play` con metadatos, `play` ajeno, viento horizontal,
-reset, origen opcional, espejo del origen con `body` y callback.
+reset, origen opcional, espejo local del origen con `body` y callback.
 
 #### Resultado con los cuatro disparos
 
@@ -1298,6 +1307,51 @@ Mediana: `powerScale = 2.3636143497757846`, `gravity = 402`. La muestra
 > como respaldo hasta el primer `play` propio; después manda la mediana observada.
 > Esto cubre cambios de sala, versión del servidor o bonificaciones de cuenta sin
 > hardcodear una constante que ya se demostró variable.
+
+### 16.13 Corrección de apuntado y espejo del origen (2026-10-20, live)
+
+La primera prueba en partida real mostró dos fallos que las fixtures sintéticas
+no cubrían:
+
+1. **Destino a la derecha:** la trayectoria salía invertida en vertical (el
+   cañón apuntaba arriba y la curva bajaba). El código trataba
+   `angle.rotation` como el `ang` relativo del cliente y le restaba `body`:
+   `angAbs = rotation − body` para `look=1`.
+2. **Origen con el móvil a la izquierda:** seguía dibujándose a la derecha. El
+   espejo se aplicaba al `dx` ya rotado por `body`, y el lado se deducía solo de
+   `player.look`, que puede quedarse atrás respecto al sprite.
+
+**Causa raíz del ángulo.** `angle.rotation` es la rotación de pantalla de Pixi
+(Y hacia abajo, positiva horaria) y ya incluye `look` y `body`: es
+`rotation = −ang_abs`. La única muestra live con ambos datos
+(`aim.deg = 200` ↔ `ang = 20`, `look=0`, `body=0`) cumple
+`ang_abs = 360 − aim.deg = 160`. Para `look=1` la fórmula anterior devolvía
+`360 − ang_abs` (reflejo horizontal), de ahí la curva invertida.
+
+**Corrección aplicada.**
+
+- El ángulo se lee de `player.angle.worldTransform`: la columna `(a, b)` es el
+  eje `+x` del cañón tras `body`, `look` y cualquier espejo de la cadena de
+  padres. `ang_abs = normalize(−atan2(b, a)·180/π)`. No se resta `body` ni se
+  vuelve a espejar por `look`. `angle.rotation` queda como respaldo
+  (`ang_abs = normalize(−rotation·180/π)`).
+- Si el destino está a la derecha y el cañón apunta arriba-derecha, el ángulo
+  resultante es `≈ ang` (no `360 − ang`), y la trayectoria sube.
+- El lado del móvil se toma del signo horizontal del apuntado cuando es
+  claramente horizontal (`|cos ang_abs| ≥ 0,5`) y, si no, de `player.look` o del
+  espejo del contenedor. Así un `look` atrasado no deja el origen del lado
+  equivocado.
+- `originFor` espeja el offset **local** `(a, −c)` antes de rotar por `body`
+  (§7.4). Con `body = 26` y `look = 0` el origen pasa de `(−29,70, −14,25)` a
+  `(−7,06, −32,18)`, que es lo que hace `game.js`.
+- `game_shoot.ang` reconstruido desde el absoluto al simular un disparo por
+  `pointerup` (`look=0 → 180 − abs − body`; `look=1 → abs + body`).
+
+**Pruebas.** Se actualizaron las fixtures de integración para usar
+`worldTransform` (`rotation = −ang_abs`) y se añadieron tres casos: destino
+derecho con `look=1`, `look` atrasado corregido por el apuntado y apuntado casi
+vertical que respeta `look`. Resultado: **14/14** auto-calibración y **38/38**
+integración. Queda pendiente la validación en partida real con `body ≠ 0`.
 
 ---
 

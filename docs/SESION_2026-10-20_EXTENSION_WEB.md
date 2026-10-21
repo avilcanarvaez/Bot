@@ -13,7 +13,10 @@
 > - **Corrección 2026-10-20 (tarde):** la selección ya no bloquea el ratón; el
 >   juego recibe los `mousemove` y el cañón apunta al destino. La trayectoria y
 >   la marca de potencia funcionan a izquierda/derecha y con `look=0/1`.
-> - Pruebas: auto-calibración **14/14**, integración **37/37**.
+> - Pruebas: auto-calibración **14/14**, integración **38/38**.
+- **Corrección live 2026-10-20 (noche):** ángulo desde
+  `player.angle.worldTransform` y espejo del origen en local antes de rotar por
+  `body`. Ver §11.
 
 ---
 
@@ -477,10 +480,62 @@ Detalle completo y pruebas G–O: `docs/DISENO_EXTENSION_WEB.md` §8.2.
 
 ### Verificación
 
-- Integración hook → overlay: **37/37** (incluye capa de selección sin bloquear
+- Integración hook → overlay: **38/38** (incluye capa de selección sin bloquear
   el ratón, destinos a izquierda/derecha, panel fuera del canvas y toggle del
   icono).
 - Live: extensión recargada en Brave; el content script nuevo monta el panel de
   `196 px` en `x=952..1148` (viewport `1156`). La página quedó en el lobby
   `#server-5`, sin `#Dragon2D` visible, así que el snapshot sigue siendo
   `sin-juego`; la prueba en partida continúa pendiente.
+
+---
+
+## 11. Corrección del apuntado y del origen (live, 2026-10-20 noche)
+
+La primera prueba en partida real reportó dos fallos:
+
+1. La trayectoria solo salía bien con el destino a la **izquierda**; a la
+   derecha la curva aparecía invertida.
+2. Con el móvil mirando a la **izquierda**, el inicio de la trayectoria seguía
+   dibujándose a la derecha.
+
+### Diagnóstico
+
+- `angle.rotation` es la rotación de **pantalla** de Pixi (Y hacia abajo,
+  positiva horaria) e **incluye** `look` y `body`: `rotation = −ang_abs`. El
+  código anterior la trataba como el `ang` relativo del cliente y le restaba
+  `body`, así que con `look=1` devolvía `360 − ang_abs` (reflejo horizontal).
+- La muestra live `aim.deg = 200` ↔ `ang = 20` (`look=0`, `body=0`) confirma
+  `ang_abs = 360 − aim.deg = 160`, es decir `ang_abs = −aim.deg`.
+- `originFor` espejaba el `dx` **después** de rotar por `body`. `game.js` rota
+  `{x: x + dis, y: y − dy}` con `dis = −20,45` cuando `look=0`, o sea espeja el
+  offset local antes de rotar.
+- El lado del móvil se tomaba solo de `player.look`, que en vivo puede no
+  coincidir con el sprite en el momento de apuntar.
+
+### Cambios
+
+- `page-hook.js`: `readAim(me)` lee `me.angle.worldTransform` y calcula
+  `angAbs = normalize(−atan2(b, a)·180/π)`. Sin `worldTransform` usa
+  `−rotation`. Ya no se resta `body` ni se aplica el espejo de `look`.
+- `detectLook(me, angDeg)`: si el apuntado es claramente horizontal
+  (`|cos| ≥ 0,5`) manda su signo; si no, `look`; si falta, `scale.x < 0`.
+  El snapshot publica `lookSource` y `aimSource` para diagnóstico.
+- `originFor` (y el respaldo `computeOrigin`) espejan `sx·a` antes de rotar:
+  `dx = sx·a·cos + c·sin`, `dy = sx·a·sin − c·cos`.
+- El `ang` del disparo simulado en `pointerup` se reconstruye relativo al cuerpo
+  (`look=0 → 180 − abs − body`; `look=1 → abs + body`).
+
+### Verificación
+
+- Auto-calibración **14/14** (nuevas expectativas del espejo local con
+  `body=26`).
+- Integración **38/38**: se añadió `worldTransform` al Pixi falso, destino
+  derecho con `look=1`, `look` atrasado corregido por el apuntado y apuntado
+  casi vertical que respeta `look`.
+- Las pruebas de navegador se ejecutaron en Brave headless vía CDP
+  (`127.0.0.1:9223`) sirviendo el repo en `127.0.0.1:8123`.
+- **Pendiente:** recargar la extensión en Brave y validar en partida real
+  destinos izquierda/derecha, `look=0/1`, `body ≠ 0` y la marca de potencia.
+  El panel muestra `ÁNGULO` en grados matemáticos: apuntando 45° arriba-derecha
+  debe leer `45°`, y arriba-izquierda `135°`.

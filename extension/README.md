@@ -47,7 +47,8 @@ mueven el destino. Un clic cerca del móvil propio vuelve a fijar el origen.
 El panel muestra:
 
 - `POTENCIA NECESARIA`: potencia `0..400` para el ángulo actual.
-- `ÁNGULO`: ángulo de salida corregido por `look`/`body`.
+- `ÁNGULO`: ángulo absoluto de salida (0° = derecha, 90° = arriba, 135° =
+  arriba-izquierda), leído de `angle.worldTransform`.
 - `CALIBRACIÓN`: `FALLBACK` o `CALIBRADO (n)` con el número de muestras.
 
 La ventanita se acopla automáticamente al lado del canvas (`data-dock=right` o
@@ -69,7 +70,15 @@ src/background.js         service worker: icono -> mostrar/ocultar panel
 
 El page-hook se ejecuta en `document_start`, envuelve `WebSocket` sin alterar
 los frames y captura el `stage` de Pixi observando `Function.prototype.bind`
-(el cliente real no expone `window.PIXI`). Para considerar que hay partida,
+(el cliente real no expone `window.PIXI`).
+
+El ángulo de salida se obtiene de `player.angle.worldTransform`: la columna
+`(a, b)` es el eje `+x` ya transformado (incluye `body` y cualquier espejo), y el
+ángulo matemático es `-atan2(b, a)`. No se resta `body` ni se vuelve a espejar
+por `look`, porque ambos ya están en la matriz. El lado del móvil se deduce del
+signo horizontal del apuntado cuando es claramente horizontal (`|cos| ≥ 0,5`);
+cerca de la vertical manda `player.look`. El origen del cañón espeja el offset
+local `(a, −c)` **antes** de rotar por `body` (`originFor`). Para considerar que hay partida,
 exige que `#Dragon2D` esté visible y que el `stage` contenga un jugador con
 `player_info.is_me`. El turno propio se lee de `#turn_line0`: la primera línea
 es el jugador activo y lleva `turn_line_me` cuando es tu turno. El overlay pide
@@ -124,10 +133,10 @@ test/auto-calibration.test.js
 El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **14/14**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **37/37**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
-clic`, trayectoria a izquierda y derecha, `look=0/1`, marcador de potencia
-visible, reset por sala, acoplamiento fuera del canvas y ocultar/mostrar el panel
-desde el icono. Las fixtures usan payloads reales de la captura del 2026-10-20 y
+en **38/38**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+clic`, trayectoria a izquierda y derecha, `look=0/1`, un `look` atrasado que se
+corrige con el apuntado, marcador de potencia visible, reset por sala,
+acoplamiento fuera del canvas y ocultar/mostrar el panel desde el icono. Las fixtures usan payloads reales de la captura del 2026-10-20 y
 no contienen el token de sesión.
 
 ## Limitaciones conocidas

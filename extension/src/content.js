@@ -554,6 +554,8 @@
     panel.dataset.marker = lastMarker ? Math.round(lastMarker.x) + ',' + Math.round(lastMarker.y) : '';
     if (snapshot && snapshot.me) {
       panel.dataset.look = String(snapshot.me.look);
+      panel.dataset.lookSource = snapshot.me.lookSource || '';
+      panel.dataset.aimSource = snapshot.me.aimSource || '';
       panel.dataset.body = String(Math.round(snapshot.me.body || 0));
       panel.dataset.scaleX = snapshot.me.scaleX == null ? '' : String(snapshot.me.scaleX);
     }
@@ -567,6 +569,8 @@
       trajectory: lastTrajectory,
       marker: lastMarker,
       look: snapshot && snapshot.me ? snapshot.me.look : null,
+      lookSource: snapshot && snapshot.me ? snapshot.me.lookSource : null,
+      aimSource: snapshot && snapshot.me ? snapshot.me.aimSource : null,
       body: snapshot && snapshot.me ? snapshot.me.body : null,
     });
   }
@@ -586,23 +590,31 @@
     els.state.className = 'ds-state' + (kind ? ' ' + kind : '');
   }
 
+  /**
+   * Respaldo del origen cuando el snapshot no lo trae. Debe coincidir con
+   * `AutoCalibration.originFor`: el espejo por `look` se aplica al offset
+   * local (a, −c) antes de rotar por `body`, no al `dx` ya rotado.
+   */
   function computeOrigin(me, profile) {
     const a = profile.origin ? profile.origin.a : FALLBACK.origin.a;
     const c = profile.origin ? profile.origin.c : FALLBACK.origin.c;
     const theta = (me.body || 0) * Math.PI / 180;
     const cos = Math.cos(theta);
     const sin = Math.sin(theta);
-    let dx = a * cos + c * sin;
-    const dy = a * sin - c * cos;
-    if (me.look === 0) dx = -dx;
+    const sx = me.look === 0 ? -1 : 1;
+    const dx = sx * a * cos + c * sin;
+    const dy = sx * a * sin - c * cos;
     return { x: me.x + dx, y: me.y + dy };
   }
 
+  /**
+   * `angAbs` ya viene en grados matemáticos (Y hacia arriba) desde el hook.
+   * `aimDeg` es el mismo valor; se conserva como respaldo por compatibilidad.
+   */
   function effectiveAngle(me) {
-    if (me.angAbs != null) return me.angAbs;
+    if (me.angAbs != null) return normalizeDeg(me.angAbs);
     if (me.aimDeg == null) return null;
-    const shootAng = me.look === 0 ? me.aimDeg - 180 : me.aimDeg;
-    return normalizeDeg((me.look === 0 ? 180 - shootAng : shootAng) - me.body);
+    return normalizeDeg(me.aimDeg);
   }
 
   function normalizeDeg(value) {

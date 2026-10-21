@@ -65,6 +65,21 @@
       const canvas = document.getElementById('game');
       const zoom = 1.5716667;
 
+      // El cañón apunta a `absDeg` (grados matemáticos, Y hacia arriba). El
+      // `angle` de Pixi se dibuja con rotación positiva horaria, así que el
+      // `rotation` es −absDeg y el `worldTransform` lleva ese mismo eje +x.
+      const aimNode = function (absDeg) {
+        const r = -absDeg * Math.PI / 180;
+        return {
+          rotation: r,
+          worldTransform: {
+            a: Math.cos(r), b: Math.sin(r),
+            c: -Math.sin(r), d: Math.cos(r),
+            tx: 0, ty: 0,
+          },
+        };
+      };
+
       class FakeApplication {
         constructor() {
           const root = { scale: { x: zoom }, children: [] };
@@ -74,7 +89,7 @@
             y: 118,
             look: 1,
             body_angle: -17,
-            angle: { rotation: 55 * Math.PI / 180 },
+            angle: aimNode(72),
             is_turn: true,
             mobile: 'Armor2D.png',
             player_info: { is_me: true, is_turn: true, mobile: 'Armor2D.png' },
@@ -95,6 +110,7 @@
       }
 
       window.PIXI = { Application: FakeApplication };
+      window.__DS_TEST_AIM__ = aimNode;
       window.__DS_TEST_APP__ = new PIXI.Application();
       window.__DS_TEST_PLAYER__ = window.__DS_TEST_APP__.player;
     })();
@@ -140,6 +156,17 @@
           y: c.rect.top + (snap.zoom * (world.y + snap.camera.y)) * (c.rect.height / c.height),
         };
       };
+      // Punto de clic garantizado dentro del canvas: con ventanas pequeñas un
+      // destino a ±250 unidades de mundo puede caer fuera por unos píxeles.
+      const insidePoint = function (snap, world) {
+        const p = toClient(snap, world);
+        const r = snap.canvas.rect;
+        const margin = 40;
+        return {
+          x: Math.min(Math.max(p.x, r.left + margin), r.right - margin),
+          y: Math.min(Math.max(p.y, r.top + margin), r.bottom - margin),
+        };
+      };
       const click = function (x, y) {
         document.getElementById('game').dispatchEvent(new PointerEvent('pointerdown', {
           button: 2,
@@ -154,11 +181,13 @@
       const setPlayer = function (patch) {
         Object.assign(window.__DS_TEST_PLAYER__, patch);
       };
+      // `aimDeg` es el ángulo absoluto de salida en grados matemáticos
+      // (0 = derecha, 90 = arriba, 135 = arriba-izquierda).
       const setAim = async function (look, aimDeg, body) {
         setPlayer({
           look: look,
           body_angle: body,
-          angle: { rotation: aimDeg * Math.PI / 180 },
+          angle: window.__DS_TEST_AIM__(aimDeg),
         });
         await wait(260);
       };
@@ -202,7 +231,8 @@
         await wait(400);
         const snap1 = window.__DS_EXT_HOOK__.snapshot();
         assert('snapshot del jugador propio', snap1.ok && snap1.me.mobile === 'Armor2D.png', snap1);
-        assert('ángulo efectivo 72°', snap1.me.angAbs === 72, snap1.me);
+        assert('ángulo efectivo 72°',
+          snap1.me.angAbs != null && Math.abs(snap1.me.angAbs - 72) < 1e-6, snap1.me);
         assert('zoom y cámara', Math.abs(snap1.zoom - 1.5716667) < 1e-6, snap1.zoom);
 
         // La barra en reposo mide 1 px: un clic normal no debe parecer disparo.
@@ -293,7 +323,7 @@
         // una solución positiva (antes se confundía con "OBJETIVO DETRÁS").
         await setAim(1, 20, 0);
         const snapRight = window.__DS_EXT_HOOK__.snapshot();
-        const targetRight = toClient(snapRight, { x: snapRight.me.x + 250, y: snapRight.me.y + 10 });
+        const targetRight = insidePoint(snapRight, { x: snapRight.me.x + 250, y: snapRight.me.y + 10 });
         selectButton.click();
         await wait(80);
         selectAt(targetRight);
@@ -325,9 +355,9 @@
         // izquierda del móvil y la trayectoria también.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(80);
-        await setAim(0, 200, 0);
+        await setAim(0, 160, 0);
         const snapLeft = window.__DS_EXT_HOOK__.snapshot();
-        const targetLeft = toClient(snapLeft, { x: snapLeft.me.x - 250, y: snapLeft.me.y + 10 });
+        const targetLeft = insidePoint(snapLeft, { x: snapLeft.me.x - 250, y: snapLeft.me.y + 10 });
         selectButton.click();
         await wait(80);
         selectAt(targetLeft);
@@ -347,45 +377,41 @@
           stateLeft.marker.x > 0 && stateLeft.marker.x < window.innerWidth,
           { marker: stateLeft && stateLeft.marker, area: areaLeft.toJSON() });
 
-        // Combinaciones cruzadas: el origen depende de `look`, la trayectoria
-        // depende del ángulo. look=0 puede disparar a la derecha y look=1 a la
-        // izquierda; el origen no debe confundirse con el lado del destino.
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        await wait(80);
-        await setAim(0, 0, 0);
-        const snapCrossRight = window.__DS_EXT_HOOK__.snapshot();
-        const targetCrossRight = toClient(snapCrossRight,
-          { x: snapCrossRight.me.x + 250, y: snapCrossRight.me.y + 10 });
-        selectButton.click();
-        await wait(80);
-        selectAt(targetCrossRight);
-        await wait(280);
-        const crossRight = debugState();
-        assert('look=0 dispara a la derecha', crossRight && crossRight.solution &&
-          crossRight.solution.ok && crossRight.trajectory &&
-          crossRight.trajectory.vx > 0, { state: crossRight, panel: panelText() });
-        assert('look=0 mantiene el origen a la izquierda', crossRight &&
-          crossRight.origin.x < snapCrossRight.me.x, crossRight && crossRight.origin);
-
+        // `look` atrasado: el sprite ya mira a la izquierda pero la propiedad
+        // sigue en 1. El signo del apuntado manda y el origen debe espejarse.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(80);
         await setAim(1, 160, 0);
-        const snapCrossLeft = window.__DS_EXT_HOOK__.snapshot();
-        const targetCrossLeft = toClient(snapCrossLeft,
-          { x: snapCrossLeft.me.x - 250, y: snapCrossLeft.me.y + 10 });
+        const snapStale = window.__DS_EXT_HOOK__.snapshot();
+        assert('look atrasado se corrige con el apuntado',
+          snapStale.me.look === 0 && /aim/.test(snapStale.me.lookSource), snapStale.me);
+        const targetStale = insidePoint(snapStale,
+          { x: snapStale.me.x - 250, y: snapStale.me.y + 10 });
         selectButton.click();
         await wait(80);
-        selectAt(targetCrossLeft);
+        selectAt(targetStale);
         await wait(280);
-        const crossLeft = debugState();
-        assert('look=1 dispara a la izquierda', crossLeft && crossLeft.solution &&
-          crossLeft.solution.ok && crossLeft.trajectory &&
-          crossLeft.trajectory.vx < 0, { state: crossLeft, panel: panelText() });
-        assert('look=1 mantiene el origen a la derecha', crossLeft &&
-          crossLeft.origin.x > snapCrossLeft.me.x, crossLeft && crossLeft.origin);
+        const staleLeft = debugState();
+        assert('look atrasado: destino izquierdo resuelve', staleLeft &&
+          staleLeft.solution && staleLeft.solution.ok &&
+          staleLeft.trajectory && staleLeft.trajectory.vx < 0,
+          { state: staleLeft, panel: panelText() });
+        assert('look atrasado: origen a la izquierda', staleLeft &&
+          staleLeft.origin.x < snapStale.me.x, staleLeft && staleLeft.origin);
+
+        // Cerca de la vertical no hay señal horizontal fiable: manda `look`.
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(80);
+        await setAim(0, 95, 0);
+        const snapVertical = window.__DS_EXT_HOOK__.snapshot();
+        assert('cerca de la vertical respeta look declarado',
+          snapVertical.me.look === 0 && snapVertical.me.lookSource === 'look',
+          snapVertical.me);
+        assert('origen espejado cerca de la vertical',
+          snapVertical.origin.x < snapVertical.me.x, snapVertical.origin);
 
         // Restaurar el jugador para no afectar las pruebas de acoplamiento.
-        await setAim(1, 55, -17);
+        await setAim(1, 72, -17);
 
         // Con margen fuera del canvas, el panel se acopla allí y no lo tapa.
         const game = document.getElementById('game');

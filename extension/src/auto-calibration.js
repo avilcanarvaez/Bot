@@ -401,6 +401,16 @@
     /**
      * Origen del cañón para el jugador y cuerpo actuales.
      * `player` usa coordenadas de mundo; `body` está en grados; `look` es 0/1.
+     *
+     * El offset local en `body=0` es `(a, -c)`. Al mirar a la izquierda el
+     * sprite se espeja en su eje local X **antes** de rotar por `body`, igual
+     * que `game.js` (`{x: x + dis, y: y - dy}` rotado por `body`):
+     *
+     *   dx = sx·a·cos(θ) + c·sin(θ)
+     *   dy = sx·a·sin(θ) − c·cos(θ)
+     *
+     * Espejar solo `dx` después de rotar dejaba el origen del lado equivocado
+     * con `body ≠ 0`.
      */
     originFor(player, body, look, mobile) {
       const profile = this.getProfile(mobile);
@@ -409,9 +419,9 @@
       const sin = Math.sin(theta);
       const a = profile.origin.a;
       const c = profile.origin.c;
-      let dx = a * cos + c * sin;
-      const dy = a * sin - c * cos;
-      if (look === 0) dx = -dx;
+      const sx = look === 0 ? -1 : 1;
+      const dx = sx * a * cos + c * sin;
+      const dy = sx * a * sin - c * cos;
       return { x: player.x + dx, y: player.y + dy };
     }
 
