@@ -626,5 +626,8 @@ Con `look=1` no hay espejo y `real = raw`. Confirmado con:
 - Auto-calibración **14/14**; integración **41/41** con lecturas reales
   (`look=0, raw=240 → 120`; `look=0, raw=200 → 160`; `look=1, raw=20 → 20`;
   `look=0, raw=265 → 95`).
-- **Pendiente:** confirmar en partida real con un disparo que `ÁNGULO` y la
-  trayectoria coinciden con el dial para ambos lados.
+- **Confirmado en vivo (8 disparos):** `play` publica `truth`/`raw` del mismo
+  instante y el residuo fue 0° en todos los casos:
+  `look=0` → 231→129, 235→125, 230→130, 206→154;
+  `look=1` → 50→50, 63→63. La corrección `look=0 → −raw`, `look=1 → raw`
+  coincide con el servidor en ambos lados.

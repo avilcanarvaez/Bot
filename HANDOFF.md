@@ -108,9 +108,12 @@ out/            build (ignorado por git)
      lectura de `ang`, viewport/CSP.
 2. Validar la extensión en partida real (destinos izquierda/derecha, `look=0/1`, `body ≠ 0`).
    v0.1.3 corrige la **inversión vertical** del cañón (`look=0 → real = −raw`,
-   `look=1 → real = raw`); ver §13 de la sesión y §16.15 del diseño. Falta confirmar
-   en vivo, con un disparo a cada lado, que `ÁNGULO`, el dial del juego y la
-   trayectoria coinciden (el mensaje `play` publica `truth`/`raw` para compararlos).
+   `look=1 → real = raw`); ver §13 de la sesión y §16.15 del diseño. **Confirmado
+   en vivo con 8 disparos**: el mensaje `play` publica `truth`/`raw` del mismo
+   instante y el residuo fue 0° en ambos lados (look=0: 231→129, 235→125,
+   230→130, 206→154; look=1: 50→50, 63→63). Pendiente menor: revisar si la
+   calibración de potencia debe separar por `selectedShot` (con 8 muestras el
+   perfil quedó en 2.2919/386 frente a 2.3641/402 de los fixtures).
 3. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---

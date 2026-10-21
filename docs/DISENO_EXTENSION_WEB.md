@@ -1451,6 +1451,21 @@ Evidencia en vivo:
 `look=0, raw=265 → 95` (cerca de la vertical). Resultado: **14/14**
 auto-calibración y **41/41** integración.
 
+**Verificación live (misma sesión, 8 disparos).** Cada `play` publica `truth`
+(`s[2]`) y `raw` del mismo instante; el residuo fue **0° en todos**:
+
+| look | raw | mostrado | verdad |
+| --- | --- | --- | --- |
+| 0 | 231° | 129° | 129° |
+| 0 | 235° | 125° | 125° |
+| 0 | 230° | 130° | 130° |
+| 0 | 206° | 154° | 154° |
+| 1 | 50° | 50° | 50° |
+| 1 | 63° | 63° | 63° |
+
+La conversión `look=0 → −raw`, `look=1 → raw` queda confirmada contra el
+servidor, no solo contra el arnés.
+
 ---
 
 ## Anexo A — Referencias de código (runtime del juego)
