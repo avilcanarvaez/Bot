@@ -48,8 +48,12 @@ El panel muestra:
 
 - `POTENCIA NECESARIA`: potencia `0..400` para el ángulo actual.
 - `ÁNGULO`: ángulo absoluto de salida (0° = derecha, 90° = arriba, 135° =
-  arriba-izquierda), leído de `angle.worldTransform`.
+  arriba-izquierda), leído de `angle.worldTransform` y reconciliado con el lado
+  real del móvil.
 - `CALIBRACIÓN`: `FALLBACK` o `CALIBRADO (n)` con el número de muestras.
+- Línea de diagnóstico pequeña (`L0 · B-17° · R72° · θ72° · e0°`): lado, cuerpo,
+  rotación cruda de Pixi, ángulo leído y error del último disparo real. Sirve
+  para reportar desvíos sin abrir DevTools.
 
 La ventanita se acopla automáticamente al lado del canvas (`data-dock=right` o
 `left`) y, si no hay sitio, debajo/encima. En pantalla completa, donde no existe
@@ -73,12 +77,17 @@ los frames y captura el `stage` de Pixi observando `Function.prototype.bind`
 (el cliente real no expone `window.PIXI`).
 
 El ángulo de salida se obtiene de `player.angle.worldTransform`: la columna
-`(a, b)` es el eje `+x` ya transformado (incluye `body` y cualquier espejo), y el
-ángulo matemático es `-atan2(b, a)`. No se resta `body` ni se vuelve a espejar
-por `look`, porque ambos ya están en la matriz. El lado del móvil se deduce del
-signo horizontal del apuntado cuando es claramente horizontal (`|cos| ≥ 0,5`);
-cerca de la vertical manda `player.look`. El origen del cañón espeja el offset
-local `(a, −c)` **antes** de rotar por `body` (`originFor`). Para considerar que hay partida,
+`(a, b)` es el eje `+x` ya transformado (incluye `body` y los espejos de la
+cadena de padres), y el ángulo matemático es `-atan2(b, a)`. No se resta `body`
+ni se vuelve a espejar por `look`.
+
+Esa lectura puede salir **espejada respecto a la vertical** (leer 60° cuando el
+cañón apunta a 120°): el espejo del sprite no siempre está en la matriz. Por eso
+`alignAimToLook` compara el signo horizontal del apuntado con `player.look` y,
+si no coinciden, refleja con `180° − ángulo`. El cañón nunca apunta detrás del
+móvil, así que el lado declarado es la referencia fiable. Cerca de la vertical
+(`|cos| < 0,1`) no se toca el valor. El origen del cañón espeja el offset local
+`(a, −c)` **antes** de rotar por `body` (`originFor`). Para considerar que hay partida,
 exige que `#Dragon2D` esté visible y que el `stage` contenga un jugador con
 `player_info.is_me`. El turno propio se lee de `#turn_line0`: la primera línea
 es el jugador activo y lleva `turn_line_me` cuando es tu turno. El overlay pide
@@ -133,10 +142,11 @@ test/auto-calibration.test.js
 El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **14/14**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **38/38**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
-clic`, trayectoria a izquierda y derecha, `look=0/1`, un `look` atrasado que se
-corrige con el apuntado, marcador de potencia visible, reset por sala,
-acoplamiento fuera del canvas y ocultar/mostrar el panel desde el icono. Las fixtures usan payloads reales de la captura del 2026-10-20 y
+en **40/40**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+clic`, trayectoria a izquierda y derecha, `look=0/1`, apuntado espejado que se
+alinea con el lado real (izquierda y derecha), marcador de potencia visible,
+reset por sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde
+el icono. Las fixtures usan payloads reales de la captura del 2026-10-20 y
 no contienen el token de sesión.
 
 ## Limitaciones conocidas

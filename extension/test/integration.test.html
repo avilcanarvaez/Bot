@@ -377,27 +377,40 @@
           stateLeft.marker.x > 0 && stateLeft.marker.x < window.innerWidth,
           { marker: stateLeft && stateLeft.marker, area: areaLeft.toJSON() });
 
-        // `look` atrasado: el sprite ya mira a la izquierda pero la propiedad
-        // sigue en 1. El signo del apuntado manda y el origen debe espejarse.
+        // El cañón puede leerse espejado respecto a la vertical (leer 60°
+        // cuando apunta a 120°). Manda el lado real del móvil: el apuntado se
+        // refleja y el origen se espeja a la izquierda.
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(80);
+        await setAim(0, 60, 0);
+        const snapMirror = window.__DS_EXT_HOOK__.snapshot();
+        assert('apuntado espejado se alinea con look=0',
+          snapMirror.me.look === 0 && snapMirror.me.aimMirrored === true &&
+          Math.abs(snapMirror.me.angAbs - 120) < 1e-6, snapMirror.me);
+        const targetMirror = insidePoint(snapMirror,
+          { x: snapMirror.me.x - 250, y: snapMirror.me.y + 10 });
+        selectButton.click();
+        await wait(80);
+        selectAt(targetMirror);
+        await wait(280);
+        const mirroredLeft = debugState();
+        assert('apuntado espejado: destino izquierdo resuelve', mirroredLeft &&
+          mirroredLeft.solution && mirroredLeft.solution.ok &&
+          mirroredLeft.trajectory && mirroredLeft.trajectory.vx < 0,
+          { state: mirroredLeft, panel: panelText() });
+        assert('apuntado espejado: origen a la izquierda', mirroredLeft &&
+          mirroredLeft.origin.x < snapMirror.me.x, mirroredLeft && mirroredLeft.origin);
+
+        // El mismo espejo con look=1 debe alinear el cañón a la derecha.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(80);
         await setAim(1, 160, 0);
-        const snapStale = window.__DS_EXT_HOOK__.snapshot();
-        assert('look atrasado se corrige con el apuntado',
-          snapStale.me.look === 0 && /aim/.test(snapStale.me.lookSource), snapStale.me);
-        const targetStale = insidePoint(snapStale,
-          { x: snapStale.me.x - 250, y: snapStale.me.y + 10 });
-        selectButton.click();
-        await wait(80);
-        selectAt(targetStale);
-        await wait(280);
-        const staleLeft = debugState();
-        assert('look atrasado: destino izquierdo resuelve', staleLeft &&
-          staleLeft.solution && staleLeft.solution.ok &&
-          staleLeft.trajectory && staleLeft.trajectory.vx < 0,
-          { state: staleLeft, panel: panelText() });
-        assert('look atrasado: origen a la izquierda', staleLeft &&
-          staleLeft.origin.x < snapStale.me.x, staleLeft && staleLeft.origin);
+        const snapMirrorRight = window.__DS_EXT_HOOK__.snapshot();
+        assert('apuntado espejado se alinea con look=1',
+          snapMirrorRight.me.look === 1 && snapMirrorRight.me.aimMirrored === true &&
+          Math.abs(snapMirrorRight.me.angAbs - 20) < 1e-6, snapMirrorRight.me);
+        assert('apuntado espejado: origen a la derecha',
+          snapMirrorRight.origin.x > snapMirrorRight.me.x, snapMirrorRight.origin);
 
         // Cerca de la vertical no hay señal horizontal fiable: manda `look`.
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

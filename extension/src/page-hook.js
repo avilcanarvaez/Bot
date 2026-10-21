@@ -35,6 +35,9 @@
   let myPlayerIndex = null;
   let turnPlayerIndex = null;
   const playersByIndex = {};
+  // Comparación entre el ángulo mostrado y el que el juego envió en el último
+  // disparo real; sirve para diagnosticar desvíos sin abrir DevTools.
+  let lastAimCheck = null;
 
   function getApi() {
     return window.DragonShotAutoCalibration || null;
@@ -217,9 +220,42 @@
     };
   }
 
+  function shortestDelta(a, b) {
+    let d = (a - b) % 360;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    return d;
+  }
+
+  /**
+   * Guarda la diferencia entre el ángulo que mostró la extensión y el que el
+   * cliente envió realmente. Solo se registra si el jugador sigue en la misma
+   * posición y lado que el disparo, para no comparar estados distintos.
+   */
+  function noteAimCheck(shot, me) {
+    if (!me || !shot || (shot.look !== 0 && shot.look !== 1)) return;
+    if (numberOr(me.look, null) !== shot.look) return;
+    if (Math.abs(numberOr(me.x, 0) - shot.x) > 2) return;
+    if (Math.abs(numberOr(me.y, 0) - shot.y) > 2) return;
+    const aim = readAim(me);
+    if (aim.deg == null) return;
+    const truth = normalizeDeg((shot.look === 0 ? 180 - shot.ang : shot.ang) - shot.body);
+    const model = alignAimToLook(aim.deg, shot.look);
+    lastAimCheck = {
+      look: shot.look,
+      body: shot.body,
+      truth: Math.round(truth * 10) / 10,
+      raw: Math.round(aim.deg * 10) / 10,
+      model: Math.round(model * 10) / 10,
+      residual: Math.round(shortestDelta(model, truth) * 10) / 10,
+      at: Date.now(),
+    };
+  }
+
   function onShoot(shot, raw) {
     const cal = getCalibration();
     const me = getMe();
+    if (typeof raw === 'string') noteAimCheck(shot, me);
     const mobile = mobileNameOf(me) || 'unknown';
     const observed = cal ? cal.observeGameShoot(raw, { mobile: mobile }) : null;
     lastShotAt = Date.now();
@@ -259,6 +295,7 @@
     const cal = getCalibration();
     if (cal) cal.resetPhysics();
     lastShotPower = null;
+    lastAimCheck = null;
     post('room-state', { room: room });
   }
 
@@ -657,17 +694,17 @@
   }
 
   /**
-   * Dirección real del cañón, en grados matemáticos (0 = derecha, 90 = arriba).
+   * Dirección del cañón según el nodo `angle`, en grados matemáticos
+   * (0 = derecha, 90 = arriba).
    *
    * Pixi usa Y hacia abajo y rotación positiva horaria, así que el ángulo
-   * matemático es `-atan2(y, x)`. Se lee el `worldTransform` del nodo `angle`
-   * para incluir el `body` del contenedor y cualquier espejo (`scale.x = -1`)
-   * de la cadena de padres: la columna (a, b) es el eje local +x ya
-   * transformado, es decir, hacia dónde apunta el cañón en pantalla.
+   * matemático es `-atan2(y, x)`. Se prefiere el `worldTransform` porque
+   * incluye el `body` del contenedor y los espejos de la cadena de padres: la
+   * columna (a, b) es el eje local +x ya transformado.
    *
-   * No se resta `body` ni se aplica el espejo de `look` aquí: ambas cosas ya
-   * están en la matriz. Hacerlo producía el ángulo invertido al disparar a la
-   * derecha (`look=1`).
+   * Ojo: esta lectura puede venir espejada respecto a la vertical (leer 60°
+   * cuando el cañón apunta a 120°). El espejo del sprite no siempre está en la
+   * matriz y por eso `alignAimToLook` reconcilia el resultado con `me.look`.
    */
   function readAim(me) {
     const node = me && me.angle;
@@ -692,33 +729,43 @@
   }
 
   /**
+   * Reconcilia el apuntado con el lado real del móvil.
+   *
+   * El cañón de DragonBound nunca apunta detrás del móvil: si el móvil mira a
+   * la izquierda (`look=0`), la componente horizontal del ángulo debe ser
+   * negativa, y viceversa. Cuando la lectura de Pixi sale espejada respecto a
+   * la vertical (mismo seno, coseno cambiado) se refleja con `180 - ang`.
+   *
+   * Cerca de la vertical (|cos| < 0.1) no hay señal horizontal fiable y se
+   * deja el valor tal cual.
+   */
+  function alignAimToLook(deg, look) {
+    if (deg == null || (look !== 0 && look !== 1)) return deg;
+    const cos = Math.cos(deg * Math.PI / 180);
+    if (Math.abs(cos) < 0.1) return deg;
+    const pointsLeft = cos < 0;
+    const wantsLeft = look === 0;
+    if (pointsLeft === wantsLeft) return deg;
+    return normalizeDeg(180 - deg);
+  }
+
+  /**
    * Lado hacia el que mira el móvil (0 = izquierda, 1 = derecha).
    *
-   * `me.look` es la fuente declarada, pero en vivo puede quedarse atrás
-   * respecto al sprite. El cañón nunca cruza la vertical, así que el signo de
-   * la componente horizontal del apuntado es una señal fiable: si apunta
-   * claramente a la izquierda, el móvil mira a la izquierda. Solo se usa
-   * cuando el apuntado es claramente horizontal (|cos| >= 0.5); cerca de la
-   * vertical manda `look` (o el espejo del contenedor).
+   * Manda `me.look`, que es el estado declarado por el juego. El signo del
+   * apuntado no se usa como fuente principal: la lectura del cañón puede venir
+   * espejada y usarla aquí creaba un círculo vicioso que colocaba el origen en
+   * el lado contrario. Queda solo como último recurso si no hay `look` ni
+   * `scale`.
    */
   function detectLook(me, aimDeg) {
     const declared = numberOr(me && me.look, null);
-    const declaredLook = declared === 0 || declared === 1 ? declared : null;
-    if (aimDeg != null) {
-      const cos = Math.cos(aimDeg * Math.PI / 180);
-      if (Math.abs(cos) >= 0.5) {
-        const geometric = cos < 0 ? 0 : 1;
-        return {
-          look: geometric,
-          source: declaredLook != null && declaredLook !== geometric
-            ? 'aim (look=' + declaredLook + ' declarado)'
-            : 'aim',
-        };
-      }
-    }
-    if (declaredLook != null) return { look: declaredLook, source: 'look' };
+    if (declared === 0 || declared === 1) return { look: declared, source: 'look' };
     const scaleX = me && me.scale ? numberOr(me.scale.x, null) : null;
-    if (scaleX != null && scaleX < 0) return { look: 0, source: 'scale' };
+    if (scaleX != null) return { look: scaleX < 0 ? 0 : 1, source: 'scale' };
+    if (aimDeg != null) {
+      return { look: Math.cos(aimDeg * Math.PI / 180) < 0 ? 0 : 1, source: 'aim' };
+    }
     return { look: 1, source: 'default' };
   }
 
@@ -928,10 +975,12 @@
     const aim = readAim(me);
     const lookInfo = detectLook(me, aim.deg);
     const look = lookInfo.look;
-    const aimDeg = aim.deg;
     // `angAbs` es el ángulo absoluto de salida en coordenadas matemáticas
-    // (Y hacia arriba), que es el que usa la física de §7.4.
-    const angAbs = aim.deg;
+    // (Y hacia arriba), que es el que usa la física de §7.4. `aim.deg` es la
+    // lectura cruda de Pixi y `angAbs` la versión reconciliada con `look`.
+    const angAbs = alignAimToLook(aim.deg, look);
+    const aimMirrored = aim.deg != null && angAbs != null &&
+      Math.abs(aim.deg - angAbs) > 0.5;
     const mobile = mobileNameOf(me) || 'unknown';
     const cal = getCalibration();
     const profile = cal ? cal.getProfile(mobile) : null;
@@ -954,7 +1003,9 @@
         lookSource: lookInfo.source,
         body: body,
         scaleX: me.scale ? numberOr(me.scale.x, null) : null,
-        aimDeg: aimDeg,
+        aimDeg: angAbs,
+        aimRaw: aim.deg,
+        aimMirrored: aimMirrored,
         aimRotation: aim.rotationDeg,
         aimSource: aim.source,
         angAbs: angAbs,
@@ -973,6 +1024,7 @@
       profile: profile,
       origin: origin,
       power: readPower(),
+      aimCheck: lastAimCheck,
     };
   }
 
@@ -1005,6 +1057,7 @@
     if (location.href === lastUrl) return;
     lastUrl = location.href;
     lastShotPower = null;
+    lastAimCheck = null;
     const cal = getCalibration();
     if (cal) cal.resetPhysics();
     postSnapshot();

@@ -542,10 +542,12 @@ real** y, si se desea, la **potencia actual**, usando §7 con AIRE = 0.
   Por defecto es automático; el usuario puede fijarlo con `Ctrl + clic derecho`
   (§8.2).
 - **Ángulo:** `PlayerContainer.angle.worldTransform` en vivo. La columna `(a, b)`
-  es el eje `+x` del cañón ya transformado por `body` y por cualquier espejo, así
-  que `ang_abs = −atan2(b, a)` en grados matemáticos (Y hacia arriba); no se resta
-  `body` ni se vuelve a espejar por `look`. `angle.rotation` queda solo como
-  respaldo si no hay `worldTransform`. Ver §16.13.
+  es el eje `+x` del cañón ya transformado por `body` y por los espejos de la
+  cadena de padres, así que `ang_abs = −atan2(b, a)` en grados matemáticos (Y
+  hacia arriba); no se resta `body` ni se vuelve a espejar por `look`.
+  `angle.rotation` queda solo como respaldo si no hay `worldTransform`. Como el
+  espejo del sprite no siempre está en la matriz, el resultado se reconcilia con
+  `player.look` (`alignAimToLook`, §16.14).
 - **Potencia:** `#powerBar.style.width` (0–400) mientras se carga; tras el disparo,
   `#last_power_mark.style.left − 247`. Si no hay barra activa, barrido/rango si el
   usuario quiere ver varias potencias. Ver §16.11.
@@ -844,7 +846,7 @@ extension/
 - **Harness mock:** página con WebSocket falso y un `PIXI.Application` falso
   (canvas, cámara, `player_info.is_me`). Valida hook → auto-calibración →
   snapshot → overlay → clic → potencia → `room_state`.
-- **Resultado:** **38/38** (ampliado en §16.13); calibración `powerScale=2.3641`, `gravity=402`; panel
+- **Resultado:** **40/40** (ampliado en §16.13 y §16.14); calibración `powerScale=2.3641`, `gravity=402`; panel
   `POTENCIA NECESARIA=166/400` para el destino de prueba; reset por `room_state`;
   selección por capa sin bloquear el ratón, destinos a izquierda/derecha con
   `look=0/1`, marcador de potencia y acoplamiento del panel fuera del canvas
@@ -1352,6 +1354,48 @@ no cubrían:
 derecho con `look=1`, `look` atrasado corregido por el apuntado y apuntado casi
 vertical que respeta `look`. Resultado: **14/14** auto-calibración y **38/38**
 integración. Queda pendiente la validación en partida real con `body ≠ 0`.
+
+> La regla de deducir el lado desde el signo del apuntado quedó **sustituida**
+> por §16.14: era circular cuando la lectura del cañón venía espejada.
+
+### 16.14 Corrección del espejo del apuntado (2026-10-21, live)
+
+La validación en partida real mostró que el tiro al oponente de la **izquierda**
+seguía descalibrado, tanto en la potencia sugerida como en la trayectoria. El
+dato del panel fue concluyente: apuntando al rival de la izquierda, `ÁNGULO`
+marcaba **50–70°**.
+
+Un cañón que apunta al oponente situado a la izquierda debe dar `> 90°`. El
+valor mostrado era el **reflejo vertical** del real (`180 − 120 = 60`): el
+`worldTransform` de `angle` no siempre incluye el espejo del sprite, así que la
+lectura puede venir con el coseno cambiado y el mismo seno.
+
+**Cadena del fallo.** La lectura espejada (coseno positivo) hacía que
+`detectLook` dedujera `look=1` aunque `player.look` fuera `0`. Con `look=1` el
+origen no se espejaba (cañón a la derecha), el ángulo quedaba en la rama
+contraria y la solución de potencia se calculaba para otro lado. Un solo error
+producía los dos síntomas.
+
+**Corrección aplicada (v0.1.2).**
+
+- `detectLook` usa `player.look` como fuente principal; `scale.x` y el signo del
+  apuntado quedan solo como último recurso. Se elimina el círculo vicioso.
+- `alignAimToLook(deg, look)`: si el signo horizontal del ángulo no coincide con
+  el lado del móvil, se refleja con `180 − deg`. Vale para `look=0` (lee 60°,
+  usa 120°) y para `look=1` (lee 160°, usa 20°). Cerca de la vertical
+  (`|cos| < 0,1`) no se toca.
+- El snapshot expone `aimRaw` (lectura cruda), `aimMirrored` y `aimCheck`.
+- `aimCheck` compara, en cada `game_shoot` real, el ángulo mostrado con el que
+  envió el cliente (`(look=0 ? 180 − ang : ang) − body`). El residuo se muestra
+  en el panel como `e0°`; si algún día deja de ser ~0, el diagnóstico queda a la
+  vista sin abrir DevTools.
+- Línea de diagnóstico en el panel: `L0 · B-17° · R72° · θ72° · e0°` (lado,
+  cuerpo, rotación Pixi, ángulo leído, error del último disparo).
+
+**Pruebas.** Nuevos casos de integración: lectura espejada con `look=0` que se
+alinea a 120° con origen a la izquierda y solución válida, y lectura espejada
+con `look=1` que se alinea a 20° con origen a la derecha. Resultado: **14/14**
+auto-calibración y **40/40** integración.
 
 ---
 

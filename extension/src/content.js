@@ -111,6 +111,9 @@
       'border-bottom:1px solid rgba(255,255,255,.06)}',
       '.ds-row span{color:#9fc3d2;font-size:9px;text-transform:uppercase;letter-spacing:.35px}',
       '.ds-row b{font-size:10.5px;color:#eafcff;font-weight:650;text-align:right}',
+      '.ds-diag{margin:3px 0 1px;font:9px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;',
+      'color:#6f93a3;letter-spacing:.2px;white-space:nowrap;overflow:hidden;',
+      'text-overflow:ellipsis;cursor:help}',
       '.ds-req{margin:6px 0 5px;padding:6px 7px;border-radius:8px;',
       'background:rgba(52,211,153,.10);border:1px solid rgba(52,211,153,.35);',
       'display:flex;align-items:baseline;justify-content:space-between;gap:6px}',
@@ -160,6 +163,7 @@
       '<div class="ds-req"><span>Potencia necesaria</span><b id="ds-power">—</b></div>',
       '<div class="ds-row"><span>Ángulo</span><b id="ds-angle">—</b></div>',
       '<div class="ds-row"><span>Calibración</span><b id="ds-cal">—</b></div>',
+      '<div class="ds-diag" id="ds-diag">—</div>',
       '<div class="ds-hint" id="ds-hint">Haz clic en el campo. Alt: Ctrl + clic derecho. ',
       '<b>Esc</b> cancela o limpia.</div>',
       '<div class="ds-btns"><button class="ds-btn primary" id="ds-select">',
@@ -175,6 +179,7 @@
       power: shadow.getElementById('ds-power'),
       angle: shadow.getElementById('ds-angle'),
       cal: shadow.getElementById('ds-cal'),
+      diag: shadow.getElementById('ds-diag'),
       hint: shadow.getElementById('ds-hint'),
       select: shadow.getElementById('ds-select'),
       clear: shadow.getElementById('ds-clear'),
@@ -493,6 +498,7 @@
     setText(els.angle, angAbs == null ? '—' : Math.round(angAbs) + '°');
     const samples = profile.samples && profile.samples.power;
     setText(els.cal, samples ? 'CALIBRADO (' + samples + ')' : 'FALLBACK');
+    updateDiag();
 
     const originClient = worldToClient(origin, snap);
     if (originClient && inViewport(originClient, 120)) {
@@ -544,6 +550,33 @@
     setPanelDebug(origin, angAbs, solution, destClient);
   }
 
+  /**
+   * Línea de diagnóstico compacta: lado (`L`), cuerpo (`B`), rotación cruda de
+   * Pixi (`R`), ángulo leído sin reconciliar (`θ`) y error del último disparo
+   * real (`e`). Sirve para validar en vivo sin abrir DevTools.
+   */
+  function updateDiag() {
+    if (!els.diag) return;
+    const me = snapshot && snapshot.me;
+    if (!me) {
+      setText(els.diag, '—');
+      els.diag.title = '';
+      return;
+    }
+    const parts = ['L' + (me.look == null ? '—' : me.look)];
+    parts.push('B' + Math.round(me.body || 0) + '°');
+    if (me.aimRotation != null) parts.push('R' + Math.round(me.aimRotation) + '°');
+    if (me.aimRaw != null) parts.push('θ' + Math.round(me.aimRaw) + '°');
+    const check = snapshot.aimCheck;
+    if (check && check.residual != null) parts.push('e' + Math.round(check.residual) + '°');
+    setText(els.diag, parts.join(' · '));
+    els.diag.title = 'Lado · cuerpo · rotación Pixi · ángulo leído' +
+      (me.aimMirrored ? ' (espejado, corregido con el lado)' : '') +
+      (check && check.residual != null
+        ? ' · último disparo: mostrado ' + check.model + '°, juego ' + check.truth + '°'
+        : '');
+  }
+
   function setPanelDebug(origin, angAbs, solution, destClient) {
     if (!panel) return;
     panel.dataset.origin = origin ? Math.round(origin.x) + ',' + Math.round(origin.y) : '';
@@ -556,6 +589,10 @@
       panel.dataset.look = String(snapshot.me.look);
       panel.dataset.lookSource = snapshot.me.lookSource || '';
       panel.dataset.aimSource = snapshot.me.aimSource || '';
+      panel.dataset.aimRaw = snapshot.me.aimRaw == null ? '' : String(Math.round(snapshot.me.aimRaw));
+      panel.dataset.aimMirrored = snapshot.me.aimMirrored ? '1' : '';
+      panel.dataset.aimCheck = snapshot.aimCheck && snapshot.aimCheck.residual != null
+        ? String(snapshot.aimCheck.residual) : '';
       panel.dataset.body = String(Math.round(snapshot.me.body || 0));
       panel.dataset.scaleX = snapshot.me.scaleX == null ? '' : String(snapshot.me.scaleX);
     }
@@ -571,6 +608,9 @@
       look: snapshot && snapshot.me ? snapshot.me.look : null,
       lookSource: snapshot && snapshot.me ? snapshot.me.lookSource : null,
       aimSource: snapshot && snapshot.me ? snapshot.me.aimSource : null,
+      aimRaw: snapshot && snapshot.me ? snapshot.me.aimRaw : null,
+      aimMirrored: snapshot && snapshot.me ? snapshot.me.aimMirrored : null,
+      aimCheck: snapshot ? snapshot.aimCheck : null,
       body: snapshot && snapshot.me ? snapshot.me.body : null,
     });
   }

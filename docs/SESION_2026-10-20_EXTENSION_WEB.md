@@ -539,3 +539,44 @@ La primera prueba en partida real reportó dos fallos:
   destinos izquierda/derecha, `look=0/1`, `body ≠ 0` y la marca de potencia.
   El panel muestra `ÁNGULO` en grados matemáticos: apuntando 45° arriba-derecha
   debe leer `45°`, y arriba-izquierda `135°`.
+
+## 12. Corrección del espejo del apuntado (live, 2026-10-21)
+
+La validación tras §11 reportó que el disparo al oponente de la **izquierda**
+seguía descalibrado: potencia sugerida y trayectoria no cuadraban. Dato clave
+del panel: apuntando al rival de la izquierda, `ÁNGULO` marcaba **50–70°**.
+
+### Diagnóstico
+
+- Un cañón apuntando a la izquierda debe dar `> 90°`. El valor mostrado era el
+  **reflejo vertical** del real (`180 − 120 = 60`): el `worldTransform` de
+  `angle` no siempre incluye el espejo del sprite, así que la lectura llega con
+  el coseno cambiado y el mismo seno.
+- Esa lectura espejada (coseno positivo) hacía que `detectLook` dedujera
+  `look=1` aunque `player.look` fuera `0`. Con `look=1` el origen no se espejaba
+  (cañón a la derecha) y la potencia se resolvía para el lado contrario.
+- Un solo error explicaba los dos síntomas: potencia y trayectoria.
+
+### Cambios (v0.1.2)
+
+- `detectLook` vuelve a priorizar `player.look`; `scale.x` y el signo del
+  apuntado quedan como último recurso (se elimina el círculo vicioso).
+- `alignAimToLook(deg, look)`: si el signo horizontal del ángulo no coincide con
+  el lado del móvil, se refleja con `180 − deg`. Cerca de la vertical
+  (`|cos| < 0,1`) no se toca.
+- El snapshot publica `aimRaw`, `aimMirrored` y `aimCheck`; el panel añade una
+  línea `L0 · B-17° · R72° · θ72° · e0°` (lado, cuerpo, rotación Pixi, ángulo
+  leído y error del último disparo real).
+- `aimCheck` compara cada `game_shoot` real con el ángulo mostrado y deja el
+  residuo a la vista; no se automatiza ningún disparo.
+
+### Verificación
+
+- Auto-calibración **14/14**.
+- Integración **40/40**: lectura espejada con `look=0` → 120° y origen a la
+  izquierda con solución válida; lectura espejada con `look=1` → 20° y origen a
+  la derecha.
+- Ejecutado en Brave headless vía CDP contra `127.0.0.1:8123`.
+- **Pendiente:** recargar en Brave y confirmar en partida real que, apuntando a
+  la izquierda, `ÁNGULO` pasa de 90° y que `e0°` del último disparo queda cerca
+  de 0.
