@@ -592,6 +592,11 @@
     panel.dataset.solution = solution && solution.ok ? 'ok' : (solution ? solution.reason || 'none' : '');
     panel.dataset.power = solution && solution.ok ? String(Math.round(solution.power)) : '';
     panel.dataset.marker = lastMarker ? Math.round(lastMarker.x) + ',' + Math.round(lastMarker.y) : '';
+    if (snapshot && snapshot.profile) {
+      panel.dataset.mobile = snapshot.profile.mobile || '';
+      panel.dataset.gravity = String(Math.round((snapshot.profile.gravity || 0) * 10) / 10);
+      panel.dataset.gravitySource = snapshot.profile.gravitySource || '';
+    }
     if (snapshot && snapshot.me) {
       panel.dataset.look = String(snapshot.me.look);
       panel.dataset.lookSource = snapshot.me.lookSource || '';

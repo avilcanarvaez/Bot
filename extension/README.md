@@ -128,6 +128,10 @@ Reglas:
   coeficientes `a` del cliente y la unidad observada
   (`unidad = s[5] / a`; respaldo `390 / 75 = 5,2`). Ejemplo: si Armor observa
   `402`, la unidad es `5,36` y Boomer (`a = 62,5`) predice `335`.
+- La tabla cubre los **21 móviles** conocidos (Armor, Boomer, Dragon2, Aduka,
+  Ice, Fox, NAK, Kalsiddon, etc.). La gravedad, la trayectoria y la potencia se
+  recalculan al cambiar de móvil; si el móvil no está en la tabla se usa 390 y
+  se corrige con el primer disparo.
 - La escala de potencia sí se comparte entre móviles como respaldo: si el móvil
   activo aún no tiene muestras, se usa la mediana global; si tampoco hay,
   `DEFAULT_PROFILE`.
@@ -155,10 +159,10 @@ test/fixtures/captured-shots.js
 test/auto-calibration.test.js
 ```
 
-El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **20/20**.
+El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **23/23**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **41/41**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+en **50/50**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
 clic`, trayectoria a izquierda y derecha, `look=0/1`, apuntado espejado que se
 alinea con el lado real (izquierda y derecha), marcador de potencia visible,
 reset por sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde
@@ -175,6 +179,8 @@ no contienen el token de sesión.
 - La calibración de potencia por **tipo de bala** sigue pendiente (§16.16 del
   diseño): los cubos son por móvil, no por `S1/S2/SS`. Si se cambia de bala, la
   escala puede variar ~3–4 %.
+- El **origen** del cañón sigue pendiente para todos los móviles (incluido
+  Boomer): se mide en `originMeasured` pero no se aplica.
 - La colisión con terreno no se simula: la trayectoria se corta por viewport.
 - La marca de potencia es visual; no se automatiza el disparo. Se dibuja sobre
   `#powerMarkArea`/`#powerMarks` (ancho 0..400) con contorno y aguja para que se

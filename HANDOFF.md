@@ -10,7 +10,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 20/20 y 41/41; calibración por móvil para Boomer (v0.1.4), validación live pendiente. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 23/23 y 50/50; calibración por móvil y cobertura de los 21 móviles (v0.1.5), validación live pendiente. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
@@ -123,7 +123,7 @@ out/            build (ignorado por git)
    por `(móvil, bala)` con fallback, `readSelectedShot()` desde
    `#btnShot1/#btnShot2/#btnShotSS` (`Pressed`), y mostrar `S1/S2/SS` en el
    panel. Criterio: 5 tiros por bala, `powerScale` estable < 1 % y sin
-   regresiones 20/20 + 41/41.
+   regresiones 23/23 + 50/50.
 4. **(Implementado v0.1.4, validación live pendiente) Calibración por móvil:
    Boomer.** La gravedad es por móvil (`a`: Armor 75, Boomer 62,5, Dragon2 120);
    antes se promediaba entre móviles y Boomer heredaba la de Armor (17 % de más).
@@ -133,7 +133,10 @@ out/            build (ignorado por git)
    `390/75·62,5 = 325`). La potencia hereda la mediana global como respaldo.
    Detalle en §16.17 del diseño. Falta: confirmar en vivo que Boomer cae en
    ~335 con 5 disparos y ajustar el **origen** de Boomer (hoy usa el de Armor).
-   Criterio: `powerScale` estable < 1 %, sin regresiones 20/20 + 41/41.
+   Criterio: `powerScale` estable < 1 %, sin regresiones 23/23 + 50/50.
+   La v0.1.5 extiende la cobertura a los **21 móviles** de la tabla con pruebas
+   de predicción y de potencia/trayectoria (Armor vs Boomer vs Dragon2); ver
+   §16.18 del diseño.
 5. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---

@@ -288,6 +288,53 @@
     approx(profile.powerScale, 2.269, 1e-12, 'powerScale');
   });
 
+
+  test('mobileKey tolera acentos y nombres con ruta', function () {
+    assert(api.mobileKey('Eléctrico2D.png') === 'electrico', 'acento');
+    assert(api.mobileKey('/static/images/mobiles/Kalsiddon2D.png') === 'kalsiddon', 'ruta');
+    assert(api.mobileKey('Dragon2_2D.png') === 'dragon2', 'guion bajo');
+  });
+
+  test('todos los móviles de la tabla predicen su gravedad', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    cal.observeGameShoot(f.shoot, { mobile: f.mobile });
+    cal.observePlay(playFor(f));
+    const unit = 402 / 75;
+    Object.keys(api.MOBILE_A).forEach(function (name) {
+      const profile = cal.getProfile(name + '2D.png');
+      approx(profile.gravity, unit * api.MOBILE_A[name], 1e-9, name);
+      assert(profile.mobile === name, name + ': clave');
+      if (name !== 'armor') {
+        assert(profile.gravitySource === 'predicted', name + ': fuente');
+      }
+    });
+  });
+
+  test('Dragon2 aprende su gravedad sin tocar la de Armor', function () {
+    const cal = new api.AutoCalibration();
+    const armor = fixtures.look0[0];
+    cal.observeGameShoot(armor.shoot, { mobile: armor.mobile });
+    cal.observePlay(playFor(armor));
+
+    const d2Shot = { x: 100, y: 100, body: 0, look: 1, ang: 45, power: 100, time: 1000 };
+    const d2Play = {
+      x: 100, y: 100, look: 1, time: 1000,
+      s: [110, 90, 45, 236, 0, 643.2],
+    };
+    cal.observeGameShoot(d2Shot, { mobile: '/static/images/mobiles/Dragon22D.png' });
+    const result = cal.observePlay(playFor(d2Play));
+    assert(result.matched && result.calibrated, 'dragon2 matched');
+
+    const a = cal.getProfile('Armor2D.png');
+    const d = cal.getProfile('Dragon22D.png');
+    approx(a.gravity, 402, 1e-12, 'Armor intacta');
+    approx(d.gravity, 643.2, 1e-12, 'Dragon2 observada');
+    approx(d.powerScale, 2.36, 1e-12, 'Dragon2 powerScale');
+    assert(d.gravitySource === 'observed', 'Dragon2 observada');
+    assert(a.samples.gravity === 1 && d.samples.gravity === 1, 'cubos separados');
+  });
+
   root.__DS_TEST_RESULTS = results;
 
   if (typeof document !== 'undefined') {

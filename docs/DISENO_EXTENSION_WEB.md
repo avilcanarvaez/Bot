@@ -1681,6 +1681,85 @@ de dónde sale el valor (`observed` / `predicted` / `default`), sin regresiones
 en 20/20 y 41/41.
 
 
+### 16.18 Cobertura del resto de móviles (2026-10-29, v0.1.5)
+
+#### Alcance
+
+La v0.1.4 dejó Boomer funcionando con gravedad propia. Esta iteración cierra la
+cobertura de los **21 móviles** de la tabla del cliente: no hay física especial
+por móvil, solo cambia el coeficiente `a` (gravedad) y el offset del cañón. El
+motor de trayectoria y el cálculo de potencia son los mismos para todos; lo que
+cambia es el perfil que consumen.
+
+#### Cómo queda cada móvil
+
+- **Gravedad**: `g = unidad · a`, con la unidad aprendida de `play.s[5]` y la de
+  respaldo `390/75 = 5,2`. Si el móvil aún no disparó, se predice con su `a`
+  (§16.17). Tras el primer disparo, su cubo guarda el `s[5]` real.
+- **Potencia**: la escala `v0 = potencia · powerScale` es del disparo, no del
+  móvil. Se usa el cubo del móvil → mediana global → `DEFAULT_PROFILE`.
+- **Trayectoria**: `drawTrajectory` usa la gravedad del perfil activo; con la
+  gravedad correcta la parábola coincide con la del juego.
+- **Barra de poder**: `solvePower` despeja la potencia con esa misma gravedad y
+  el origen; `drawPowerMarker` la sitúa en `0..400`. Un móvil de gravedad alta
+  (Dragon2, `a=120`) pide más potencia que Armor para el mismo destino; uno de
+  gravedad baja (Aduka `60,5`, Boomer `62,5`) pide menos. Si la potencia
+  necesaria supera 400, el panel muestra `INALCANZABLE` y no dibuja la marca.
+- **Origen**: sigue pendiente para todos (se mide en `originMeasured` y no se
+  aplica). Es el único parámetro que puede quedar unos píxeles desplazado; no
+  cambia la gravedad ni la potencia de forma significativa.
+
+#### Tabla de referencia
+
+La tabla completa está en §16.17 (coeficiente `a`). Los valores vienen de
+`analisis-aimbot-dragonbound.md` §3.2 (`script.js:22-110`), contrastados con la
+gravedad observada de Armor (`402/75 = 5,36`). NAK tiene un caso especial en el
+cliente (`Zero1`/`Zero2`, `b1 *= -8`); su predicción es aproximada y se corrige
+con el primer `s[5]`.
+
+#### Normalización de nombres
+
+`mobileKey()` quita ruta y extensión, elimina acentos (`Eléctrico2D.png` →
+`electrico`) y resuelve el sufijo `2D`:
+`/static/images/mobiles/Boomer2D.png` → `boomer`,
+`Dragon22D.png` / `Dragon2_2D.png` → `dragon2`.
+Un móvil desconocido cae al perfil por defecto y aprende su gravedad con el
+primer disparo.
+
+#### Pruebas
+
+- Auto-calibración **23/23**. Nuevas:
+  - `mobileKey` con acentos, rutas y guion bajo.
+  - **Los 21 móviles de la tabla predicen `unidad · a`** tras una muestra de
+    Armor, con la clave y la fuente correctas.
+  - Dragon2 aprende `643,2` sin tocar el cubo de Armor (`402`).
+- Integración **50/50**. Nuevas:
+  - Con el mismo destino y ángulo, `data-power` de Boomer (`335`) es menor que
+    el de Armor (`402`) y el de Dragon2 (`643,2`) mayor.
+  - El snapshot publica `mobile`/`gravity` correctos y el panel muestra
+    `PREDICHO` para un móvil sin muestras.
+  - El panel expone `data-mobile`, `data-gravity` y `data-gravity-source` para
+    diagnóstico.
+
+#### Límites
+
+- La tabla cubre los móviles conocidos; si el juego agrega uno nuevo, el
+  fallback es 390 hasta el primer disparo.
+- El **origen** de cada móvil sigue sin fijarse (pendiente de prioridad, como
+  Boomer). El resto de la física ya es por móvil.
+- El **viento** sigue en `AIRE = 0`; el factor `b` (Boomer `1,39`, el mayor)
+  tendrá que calibrarse por móvil si algún día se habilita.
+- Falta validación live móvil por móvil; la tabla y el motor están cubiertos por
+  pruebas, pero el cliente real solo se puede comprobar en partida.
+
+#### Criterio de aceptación
+
+Para cualquier móvil de la tabla, el perfil debe usar su `a` (predicha o
+observada), la trayectoria y la marca de potencia deben recalcularse al cambiar
+de móvil, y no debe haber contaminación entre cubos. Sin regresiones en 23/23 y
+50/50.
+
+
 ---
 
 ## Anexo A — Referencias de código (runtime del juego)

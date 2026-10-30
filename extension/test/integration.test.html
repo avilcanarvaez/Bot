@@ -270,6 +270,55 @@
         assert('potencia necesaria 166', panel.indexOf('166 / 400') >= 0, panel);
         assert('calibración visible', panel.indexOf('CALIBRADO (1)') >= 0, panel);
 
+        // La gravedad es por móvil: con el mismo destino y ángulo, Boomer
+        // (a=62,5) pide menos potencia que Armor (a=75) y Dragon2 (a=120) más.
+        const powerPanelEl = document.getElementById('dragonshot-extension-root')
+          .shadowRoot.querySelector('.ds-panel');
+        const armorPower = Number(powerPanelEl.dataset.power);
+        assert('potencia de Armor disponible', armorPower > 0, powerPanelEl.dataset);
+
+        setPlayer({
+          mobile: 'Boomer2D.png',
+          player_info: { is_me: true, is_turn: true, mobile: 'Boomer2D.png' },
+        });
+        await wait(320);
+        const boomerSnap = window.__DS_EXT_HOOK__.snapshot();
+        assert('perfil Boomer en el snapshot',
+          boomerSnap.profile.mobile === 'boomer' &&
+          Math.abs(boomerSnap.profile.gravity - 335) < 1e-9, boomerSnap.profile);
+        const boomerPower = Number(powerPanelEl.dataset.power);
+        assert('Boomer pide menos potencia',
+          boomerPower > 0 && boomerPower < armorPower,
+          { armorPower: armorPower, boomerPower: boomerPower });
+        assert('panel marca PREDICHO para Boomer',
+          panelText().indexOf('PREDICHO') >= 0, panelText());
+        assert('panel publica el móvil', powerPanelEl.dataset.mobile === 'boomer',
+          powerPanelEl.dataset);
+        assert('panel publica la gravedad',
+          Math.abs(Number(powerPanelEl.dataset.gravity) - 335) < 0.2,
+          powerPanelEl.dataset);
+
+        setPlayer({
+          mobile: 'Dragon22D.png',
+          player_info: { is_me: true, is_turn: true, mobile: 'Dragon22D.png' },
+        });
+        await wait(320);
+        const dragonSnap = window.__DS_EXT_HOOK__.snapshot();
+        assert('perfil Dragon2 en el snapshot',
+          dragonSnap.profile.mobile === 'dragon2' &&
+          Math.abs(dragonSnap.profile.gravity - 643.2) < 1e-9, dragonSnap.profile);
+        const dragonPower = Number(powerPanelEl.dataset.power);
+        assert('Dragon2 pide más potencia', dragonPower > armorPower,
+          { armorPower: armorPower, dragonPower: dragonPower });
+
+        setPlayer({
+          mobile: 'Armor2D.png',
+          player_info: { is_me: true, is_turn: true, mobile: 'Armor2D.png' },
+        });
+        await wait(320);
+        assert('Armor recupera su perfil',
+          window.__DS_EXT_HOOK__.profile().mobile === 'armor', window.__DS_EXT_HOOK__.profile());
+
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(120);
         assert('Esc limpia destino', panelText().indexOf('SIN DESTINO') >= 0, panelText());

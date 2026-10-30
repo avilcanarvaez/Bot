@@ -95,6 +95,7 @@
   function mobileKey(mobile) {
     const raw = mobile ? String(mobile) : '';
     const base = raw.split(/[\\/]/).pop()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/\.(png|jpe?g|webp|gif)$/i, '')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '');

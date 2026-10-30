@@ -695,3 +695,40 @@ usaba el respaldo `390` sin intentar predecir su gravedad.
 - La calibración por tipo de bala sigue pendiente (§16.16); los cubos son por
   móvil, no por `S1/S2/SS`.
 - Si se habilita el viento, `b` también es por móvil (Boomer `1,39`).
+
+---
+
+## 15. Cobertura del resto de móviles (2026-10-29, v0.1.5)
+
+### Pedido
+
+Dejar el offset de Boomer como pendiente de prioridad y continuar con la
+calibración, la trayectoria y el cálculo de la barra de poder de los **demás
+móviles**.
+
+### Qué se hizo
+
+- Se verificó la tabla completa de 21 móviles (`a` de gravedad) y se añadió
+  normalización de acentos en `mobileKey()` (`Eléctrico2D.png` → `electrico`);
+  también se resuelven `Dragon22D.png` y `Dragon2_2D.png` → `dragon2`.
+- El motor ya era genérico: la trayectoria y `solvePower` usan la gravedad del
+  perfil activo. Se añadieron pruebas que lo demuestran:
+  - **23/23** auto-calibración: los 21 móviles predicen `unidad · a` tras una
+    muestra de Armor; Dragon2 aprende `643,2` sin tocar el cubo de Armor.
+  - **50/50** integración: con el mismo destino y ángulo, Boomer pide menos
+    potencia que Armor y Dragon2 más; el panel muestra `PREDICHO` y publica
+    `data-mobile`/`data-gravity`/`data-gravity-source`.
+- `manifest.json` → **0.1.5**.
+
+### Comportamiento por móvil
+
+- Gravedad: predicha por tabla hasta el primer disparo; después, `s[5]` real.
+- Potencia: escala global (del disparo) con cubo por móvil.
+- Trayectoria: parábola con la gravedad del móvil activo.
+- Barra: `0..400`; si la potencia necesaria supera 400, `INALCANZABLE`.
+- Origen: **sigue pendiente** para todos (se mide, no se aplica).
+
+### Pendiente
+
+- Validación live móvil por móvil y origen por móvil.
+- Tipo de bala (§16.16) y viento por móvil (Boomer `b=1,39`) si se habilitan.
