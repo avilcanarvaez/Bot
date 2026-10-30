@@ -198,7 +198,7 @@
   });
 
   test('con calibrateOrigin desactivado se mide el origen pero no se aplica', function () {
-    const cal = new api.AutoCalibration();
+    const cal = new api.AutoCalibration({ calibrateOrigin: false });
     const f = fixtures.look0[0];
     cal.observeGameShoot(f.shoot, { mobile: f.mobile });
     cal.observePlay(playFor(f));
@@ -333,6 +333,67 @@
     approx(d.powerScale, 2.36, 1e-12, 'Dragon2 powerScale');
     assert(d.gravitySource === 'observed', 'Dragon2 observada');
     assert(a.samples.gravity === 1 && d.samples.gravity === 1, 'cubos separados');
+  });
+
+
+  function feedOrigin(cal, fixture, mobile, count, s) {
+    for (let i = 0; i < count; i++) {
+      cal.observeGameShoot(fixture.shoot, { mobile: mobile });
+      cal.observePlay(playFor(fixture, s ? { s: s } : null));
+    }
+  }
+
+  test('auto-calibra el origen de un móvil tras 3 muestras estables', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    const s = [911, -13, 153, 461, 0, 335];
+    feedOrigin(cal, f, '/static/images/mobiles/Boomer2D.png', 3, s);
+    const profile = cal.getProfile('Boomer2D.png');
+    assert(profile.originCalibrated === true, 'calibrado');
+    assert(profile.originSource === 'measured', 'fuente');
+    approx(profile.origin.a, 20, 1e-9, 'a');
+    approx(profile.origin.c, 26, 1e-9, 'c');
+    assert(profile.originMeasured.samples === 3, 'muestras');
+    assert(profile.originMeasured.stable === true, 'estable');
+  });
+
+  test('con menos de 3 muestras el origen sigue por defecto', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    feedOrigin(cal, f, '/static/images/mobiles/Boomer2D.png', 2,
+      [911, -13, 153, 461, 0, 335]);
+    const profile = cal.getProfile('Boomer2D.png');
+    assert(profile.originCalibrated === false, 'no aplicado');
+    assert(profile.originSource === 'default', 'fuente');
+    approx(profile.origin.a, 20.45, 1e-12, 'a por defecto');
+    approx(profile.origin.c, 25.83, 1e-12, 'c por defecto');
+    assert(profile.originMeasured.samples === 2, 'medido');
+  });
+
+  test('Armor conserva su origen ajustado aunque haya muestras', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    feedOrigin(cal, f, '/static/images/mobiles/Armor2D.png', 3);
+    const profile = cal.getProfile('Armor2D.png');
+    assert(profile.originCalibrated === false, 'no se sustituye');
+    assert(profile.originSource === 'tuned', 'fuente');
+    approx(profile.origin.a, 20.45, 1e-12, 'a ajustada');
+    approx(profile.origin.c, 25.83, 1e-12, 'c ajustada');
+    assert(profile.originMeasured.samples === 3, 'medido');
+  });
+
+  test('un origen inestable no se aplica', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    const muzzle = [911, 891, 871];
+    for (let i = 0; i < 3; i++) {
+      cal.observeGameShoot(f.shoot, { mobile: '/static/images/mobiles/Boomer2D.png' });
+      cal.observePlay(playFor(f, { s: [muzzle[i], -13, 153, 461, 0, 335] }));
+    }
+    const profile = cal.getProfile('Boomer2D.png');
+    assert(profile.originCalibrated === false, 'no aplicado');
+    assert(profile.originMeasured.stable === false, 'inestable');
+    assert(profile.originSource === 'default', 'fuente');
   });
 
   root.__DS_TEST_RESULTS = results;

@@ -138,15 +138,20 @@ Reglas:
 - Fallback inicial: `powerScale = 2.269`, `gravity = 390`, origen Armor
   `(a=20.45, c=25.83)`.
 - No actualiza `gravity` con `play` de otros jugadores.
-- La calibración del origen es opcional (`calibrateOrigin: true`) porque
-  `play.s[0]/s[1]` llega redondeado a píxel. Hoy está desactivada: el origen de
-  Boomer usa el de Armor hasta que se ajuste con datos live. Aun así el origen
-  se **mide** en cada disparo y se publica como `originMeasured`, para poder
-  ajustar la tabla sin activar la aplicación automática.
+- **Origen por móvil**: cada `play` propio resuelve el offset local `(a, c)` del
+  cañón y lo guarda en el cubo del móvil. En modo `auto` (por defecto) se
+  aplica la mediana cuando hay **3 muestras estables** (MAD ≤ 2 unidades); los
+  móviles con origen ya ajustado (`TUNED_ORIGINS`, hoy Armor) conservan su
+  valor y solo se miden. `calibrateOrigin: true` fuerza la medición desde la
+  primera muestra; `false` solo mide.
 - El perfil publica `mobile`, `gravitySource` (`observed` / `predicted` /
-  `default`), `samples` del cubo activo y `originMeasured` (mediana del origen
-  medida, aunque no se aplique). El panel muestra `CALIBRADO (n)`, `PREDICHO` o
-  `FALLBACK` según de dónde salga la gravedad del móvil activo.
+  `default`), `originSource` (`measured` / `tuned` / `default`), `samples` del
+  cubo activo, `originMeasured` (mediana, MAD, muestras y estabilidad) y el
+  `origin` aplicado. El panel muestra `CALIBRADO (n)`, `PREDICHO` o `FALLBACK`
+  según la gravedad, y el origen en el tooltip (`origen medido (n)` /
+  `origen fijo` / `origen por defecto`) y en `data-origin-source`.
+- Los primeros disparos de un móvil sin origen ajustado usan el de Armor; a
+  partir del tercer disparo estable se aplica el suyo.
 
 ## Pruebas
 
@@ -159,10 +164,10 @@ test/fixtures/captured-shots.js
 test/auto-calibration.test.js
 ```
 
-El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **23/23**.
+El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **27/27**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **50/50**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+en **54/54**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
 clic`, trayectoria a izquierda y derecha, `look=0/1`, apuntado espejado que se
 alinea con el lado real (izquierda y derecha), marcador de potencia visible,
 reset por sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde
@@ -173,14 +178,15 @@ no contienen el token de sesión.
 
 - El hook de WebSocket es page-level: no cubre WebSockets creados dentro de
   Workers o iframes.
-- Solo Armor tiene un origen ajustado (valor por defecto); los demás móviles
-  usan ese mismo offset (incluido Boomer: su cañón puede quedar unos píxeles
-  desplazado hasta calibrarlo en vivo).
+- El origen se auto-calibra con datos de `play`; los **tres primeros disparos**
+  de un móvil sin origen ajustado usan el de Armor. Armor conserva su valor
+  ajustado (`TUNED_ORIGINS`) y no se sustituye automáticamente.
 - La calibración de potencia por **tipo de bala** sigue pendiente (§16.16 del
   diseño): los cubos son por móvil, no por `S1/S2/SS`. Si se cambia de bala, la
   escala puede variar ~3–4 %.
-- El **origen** del cañón sigue pendiente para todos los móviles (incluido
-  Boomer): se mide en `originMeasured` pero no se aplica.
+- El **origen** medido depende de que `play.s[0]/s[1]` llegue redondeado a
+  píxel; la MAD descarta secuencias incoherentes, pero conviene validar cada
+  móvil en vivo. Armor no se auto-sustituye para no degradar el ajuste actual.
 - La colisión con terreno no se simula: la trayectoria se corta por viewport.
 - La marca de potencia es visual; no se automatiza el disparo. Se dibuja sobre
   `#powerMarkArea`/`#powerMarks` (ancho 0..400) con contorno y aguja para que se

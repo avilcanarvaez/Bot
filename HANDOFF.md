@@ -10,7 +10,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 23/23 y 50/50; calibración por móvil y cobertura de los 21 móviles (v0.1.5), validación live pendiente. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 27/27 y 54/54; calibración por móvil, cobertura de los 21 móviles y origen por móvil (v0.1.6), validación live pendiente. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
@@ -132,12 +132,20 @@ out/            build (ignorado por git)
    con `unidad = s[5]/a` (Armor 402 → unidad 5,36 → Boomer 335; sin datos,
    `390/75·62,5 = 325`). La potencia hereda la mediana global como respaldo.
    Detalle en §16.17 del diseño. Falta: confirmar en vivo que Boomer cae en
-   ~335 con 5 disparos y ajustar el **origen** de Boomer (hoy usa el de Armor).
-   Criterio: `powerScale` estable < 1 %, sin regresiones 23/23 + 50/50.
+   ~335 con 5 disparos. Criterio: `powerScale` estable < 1 %, sin regresiones.
    La v0.1.5 extiende la cobertura a los **21 móviles** de la tabla con pruebas
    de predicción y de potencia/trayectoria (Armor vs Boomer vs Dragon2); ver
    §16.18 del diseño.
-5. Afinar detección con frames reales del juego (si se usa el plan B de visión).
+5. **(Implementado v0.1.6, validación live pendiente) Origen del cañón por
+   móvil.** `AutoCalibration` resuelve `(a, c)` desde `play.s[0]/s[1]` y lo
+   guarda por móvil. En modo `auto` se aplica tras **3 muestras estables**
+   (MAD ≤ 2); Armor conserva su valor ajustado (`TUNED_ORIGINS`) y solo se
+   mide. Opciones: `calibrateOrigin: 'auto' | true | false`,
+   `minOriginSamples`, `maxOriginMad`. El perfil publica `originSource`
+   (`measured` / `tuned` / `default`) y `originMeasured` (`mad`, `stable`).
+   Detalle en §16.19 del diseño. Falta: validar en vivo que el offset medido de
+   Boomer y del resto coincide con el cañón real.
+6. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---
 

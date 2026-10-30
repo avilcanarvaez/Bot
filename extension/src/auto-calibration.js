@@ -32,6 +32,14 @@
     origin: Object.freeze({ a: 20.45, c: 25.83 }),
   });
 
+  // Orígenes ya ajustados a mano/en vivo. Para estos móviles la
+  // auto-calibración mide pero no sustituye el valor: así no se degrada un
+  // ajuste que ya funciona (Armor). El resto se auto-calibra tras
+  // `minOriginSamples` disparos estables.
+  const TUNED_ORIGINS = Object.freeze({
+    armor: DEFAULT_PROFILE.origin,
+  });
+
   const DEFAULTS = Object.freeze({
     maxShotAgeMs: 15000,
     windowSize: 8,
@@ -40,7 +48,13 @@
     minPowerScale: 1.5,
     maxPowerScale: 3.5,
     gravityRequiresZeroWind: true,
-    calibrateOrigin: false,
+    // 'auto': aplica el origen medido solo tras `minOriginSamples` muestras
+    // estables y solo a móviles sin origen ajustado. `true` fuerza la
+    // medición; `false` solo mide (no aplica).
+    calibrateOrigin: 'auto',
+    minOriginSamples: 3,
+    // Mediana de las desviaciones (MAD) máxima, en unidades de mundo.
+    maxOriginMad: 2,
   });
 
   function asNumber(value) {
@@ -454,13 +468,28 @@
       return (unit === null ? DEFAULT_GRAVITY_UNIT : unit) * a;
     }
 
+    /**
+     * Origen medido de un móvil: mediana de `(a, c)` y MAD (mediana de las
+     * distancias a la mediana). `stable` descarta secuencias incoherentes
+     * (p. ej. un `body` mal resuelto o un `play` de otro jugador).
+     */
     getOrigin(mobile) {
       const bucket = this.origins.get(normalizeMobile(mobile));
       if (!bucket || bucket.a.length === 0) return null;
+      const samples = bucket.a.length;
+      const a = median(bucket.a);
+      const c = median(bucket.c);
+      const deviations = [];
+      for (let i = 0; i < samples; i++) {
+        deviations.push(Math.hypot(bucket.a[i] - a, bucket.c[i] - c));
+      }
+      const mad = median(deviations);
       return {
-        a: median(bucket.a),
-        c: median(bucket.c),
-        samples: bucket.a.length,
+        a: a,
+        c: c,
+        samples: samples,
+        mad: mad,
+        stable: mad <= this.options.maxOriginMad,
       };
     }
 
@@ -476,11 +505,20 @@
       const gravitySource = observedGravity !== null ? 'observed'
         : (predictedGravity !== null ? 'predicted' : 'default');
       const measuredOrigin = this.getOrigin(key);
-      const calibratedOrigin = this.options.calibrateOrigin ? measuredOrigin : null;
-      const origin = calibratedOrigin || {
-        a: DEFAULT_PROFILE.origin.a,
-        c: DEFAULT_PROFILE.origin.c,
-      };
+      const tunedOrigin = TUNED_ORIGINS[key] || null;
+      let appliedOrigin = null;
+      if (this.options.calibrateOrigin === true) {
+        // Modo forzado (pruebas/ajuste manual): aplica desde la primera muestra.
+        appliedOrigin = measuredOrigin;
+      } else if (this.options.calibrateOrigin === 'auto' && !tunedOrigin &&
+          measuredOrigin &&
+          measuredOrigin.samples >= this.options.minOriginSamples &&
+          measuredOrigin.stable) {
+        appliedOrigin = measuredOrigin;
+      }
+      const originSource = appliedOrigin ? 'measured'
+        : (tunedOrigin ? 'tuned' : 'default');
+      const origin = appliedOrigin || tunedOrigin || DEFAULT_PROFILE.origin;
 
       return {
         mobile: key,
@@ -490,11 +528,14 @@
         origin: { a: origin.a, c: origin.c },
         offsetAtBody0: { x: origin.a, y: -origin.c },
         source: ownPower === null ? 'fallback' : 'observed',
-        originCalibrated: !!calibratedOrigin,
+        originSource: originSource,
+        originCalibrated: originSource === 'measured',
         originMeasured: measuredOrigin ? {
           a: measuredOrigin.a,
           c: measuredOrigin.c,
           samples: measuredOrigin.samples,
+          mad: measuredOrigin.mad,
+          stable: measuredOrigin.stable,
         } : null,
         samples: {
           power: bucket.power.length,

@@ -298,6 +298,36 @@
           Math.abs(Number(powerPanelEl.dataset.gravity) - 335) < 0.2,
           powerPanelEl.dataset);
 
+        // Tres disparos con la boca del cañón en (816, 92): el origen medido
+        // de Boomer debe quedar estable y aplicarse al perfil.
+        const powerBar2 = document.getElementById('powerBar');
+        const boomerPlay = function (v0) {
+          return [8, 0, 793, 118, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            [{ s: [816, 92, 153, v0, 0, 335], time: 1175 }]];
+        };
+        for (let i = 0; i < 3; i++) {
+          powerBar2.style.width = (196 + i) + 'px';
+          shoot();
+          ws._emit('message', {
+            data: encode('\x06' + JSON.stringify(
+              boomerPlay(Math.round((196 + i) * 2.364))), 0xDB),
+          });
+          await wait(220);
+        }
+        const boomerOrigin = window.__DS_EXT_HOOK__.profile();
+        assert('Boomer auto-calibra el origen',
+          boomerOrigin.originSource === 'measured' &&
+          boomerOrigin.originCalibrated === true, boomerOrigin);
+        assert('origen medido de Boomer',
+          Math.abs(boomerOrigin.origin.a - 29.6) < 1 &&
+          Math.abs(boomerOrigin.origin.c - 18.1) < 1, boomerOrigin.origin);
+        assert('panel publica el origen',
+          powerPanelEl.dataset.originSource === 'measured', powerPanelEl.dataset);
+        const boomerOriginSnap = window.__DS_EXT_HOOK__.snapshot();
+        assert('snapshot usa el origen medido',
+          Math.abs(boomerOriginSnap.origin.x - 816) < 1 &&
+          Math.abs(boomerOriginSnap.origin.y - 92) < 1, boomerOriginSnap.origin);
+
         setPlayer({
           mobile: 'Dragon22D.png',
           player_info: { is_me: true, is_turn: true, mobile: 'Dragon22D.png' },

@@ -1659,11 +1659,10 @@ respaldo `390 / 75 = 5,2`. Ejemplos:
 
 #### Límites y pendientes
 
-- **Origen de Boomer**: `calibrateOrigin` sigue desactivado y el offset por
-  defecto es el de Armor `(20,45, 25,83)`. El cañón de Boomer puede quedar unos
-  píxeles desplazado. Cada disparo deja la medición en
-  `profile.originMeasured` (`a`, `c`, `samples`), así que tras 3–5 tiros live se
-  puede fijar el valor de Boomer sin activar la aplicación automática.
+- **Origen de Boomer**: implementado en v0.1.6 (§16.19). Se auto-calibra tras
+  tres muestras estables; hasta entonces usa el offset de Armor
+  `(20,45, 25,83)`. La medición queda en `profile.originMeasured` (`a`, `c`,
+  `samples`, `mad`, `stable`).
 - **Tipo de bala**: los cubos son por móvil, no por `S1/S2/SS`; sigue vigente
   §16.16. Con Boomer y la segunda bala, la potencia puede desviarse ~3–4 %.
 - **Viento**: con `AIRE = 0` el factor `b` no interviene. Si se habilita el
@@ -1705,9 +1704,9 @@ cambia es el perfil que consumen.
   (Dragon2, `a=120`) pide más potencia que Armor para el mismo destino; uno de
   gravedad baja (Aduka `60,5`, Boomer `62,5`) pide menos. Si la potencia
   necesaria supera 400, el panel muestra `INALCANZABLE` y no dibuja la marca.
-- **Origen**: sigue pendiente para todos (se mide en `originMeasured` y no se
-  aplica). Es el único parámetro que puede quedar unos píxeles desplazado; no
-  cambia la gravedad ni la potencia de forma significativa.
+- **Origen**: auto-calibrado por móvil desde v0.1.6 (§16.19). Se mide en cada
+  `play` y se aplica tras tres muestras estables; Armor conserva su valor
+  ajustado. Es el único parámetro que puede quedar unos píxeles desplazado.
 
 #### Tabla de referencia
 
@@ -1745,8 +1744,8 @@ primer disparo.
 
 - La tabla cubre los móviles conocidos; si el juego agrega uno nuevo, el
   fallback es 390 hasta el primer disparo.
-- El **origen** de cada móvil sigue sin fijarse (pendiente de prioridad, como
-  Boomer). El resto de la física ya es por móvil.
+- El **origen** de cada móvil se auto-calibra en v0.1.6 (§16.19); los tres
+  primeros disparos usan el de Armor hasta reunir muestras estables.
 - El **viento** sigue en `AIRE = 0`; el factor `b` (Boomer `1,39`, el mayor)
   tendrá que calibrarse por móvil si algún día se habilita.
 - Falta validación live móvil por móvil; la tabla y el motor están cubiertos por
@@ -1759,6 +1758,88 @@ observada), la trayectoria y la marca de potencia deben recalcularse al cambiar
 de móvil, y no debe haber contaminación entre cubos. Sin regresiones en 23/23 y
 50/50.
 
+
+
+### 16.19 Origen del cañón por móvil (2026-10-29, v0.1.6)
+
+#### Problema
+
+El origen del cañón es un offset local del sprite, distinto para cada móvil.
+Hasta v0.1.5 todos usaban el de Armor `(a=20,45, c=25,83)`; en Boomer y el
+resto el punto de salida podía quedar desplazado unos píxeles, lo que afectaba
+a la parábola y a la potencia necesaria.
+
+#### Modelo
+
+El offset se expresa en el marco local del jugador:
+
+```text
+dx = sx·a·cos(body) + c·sin(body)
+dy = sx·a·sin(body) − c·cos(body)
+```
+
+con `sx = -1` si el móvil mira a la izquierda (`look = 0`) y `sx = 1` si mira a
+la derecha. Cada `play` propio trae la salida real en `s[0]/s[1]`; el solver
+deshace el espejo y la rotación del cuerpo y obtiene `(a, c)`:
+
+```text
+dx = s[0] − x;  dy = s[1] − y
+si look = 0: dx = −dx
+a = dx·cos(body) + dy·sin(body)
+c = dx·sin(body) − dy·cos(body)
+```
+
+No usa el ángulo de apuntado ni la potencia: el offset es fijo en el marco del
+cuerpo. Se descartan muestras con `|a|` o `|c|` fuera de rango (> 100).
+
+#### Aplicación
+
+`AutoCalibration.getOrigin(mobile)` devuelve la mediana de las últimas 8
+muestras del móvil, la MAD (mediana de las distancias a la mediana) y
+`stable = MAD ≤ maxOriginMad` (2 unidades). `getProfile(mobile)` decide:
+
+| Modo | Condición | Origen aplicado | `originSource` |
+| --- | --- | --- | --- |
+| `'auto'` (defecto) | móvil sin origen ajustado, ≥ 3 muestras y estable | mediana medida | `measured` |
+| `'auto'` | móvil con `TUNED_ORIGINS` | valor ajustado | `tuned` |
+| `'auto'` | menos de 3 muestras o inestable | `DEFAULT_PROFILE.origin` | `default` |
+| `true` | ≥ 1 muestra | mediana medida | `measured` |
+| `false` | siempre | `TUNED_ORIGINS` o defecto | `tuned` / `default` |
+
+`TUNED_ORIGINS` contiene hoy solo Armor (`DEFAULT_PROFILE.origin`). Así el
+ajuste validado en vivo no se degrada por una medición ruidosa; para
+re-calibrar Armor se usa `calibrateOrigin: true` o se actualiza la tabla.
+
+Opciones nuevas: `calibrateOrigin` (`'auto'` por defecto), `minOriginSamples`
+(3) y `maxOriginMad` (2). `resetPhysics()` conserva los orígenes porque son una
+propiedad del sprite, no de la sala; `reset()` los borra.
+
+#### Diagnóstico
+
+El perfil publica `origin` (aplicado), `originSource`, `originCalibrated`
+(`source === 'measured'`) y `originMeasured = { a, c, samples, mad, stable }`.
+El panel añade el origen al tooltip de calibración (`origen medido (n)`,
+`origen fijo`, `origen por defecto`) y `data-origin-source`.
+
+#### Pruebas
+
+- Auto-calibración **27/27**. Nuevas:
+  - Boomer aplica su origen tras 3 muestras estables (20, 26).
+  - Con 2 muestras sigue el origen por defecto.
+  - Armor conserva el valor ajustado aunque acumule muestras (`tuned`).
+  - Una secuencia inestable (MAD 20) no se aplica.
+- Integración **54/54**. Nuevo: tres disparos de Boomer con la boca en
+  `(816, 92)` dejan `originSource = 'measured'`, el snapshot usa ese origen y el
+  panel publica `data-origin-source`.
+
+#### Límites
+
+- Los tres primeros disparos de un móvil sin origen ajustado usan el de Armor;
+  el error es de pocos píxeles y desaparece al tercer disparo estable.
+- `play.s[0]/s[1]` llega redondeado a píxel; la MAD absorbe el ruido normal,
+  pero una secuencia con `body` mal resuelto se descarta hasta estabilizarse.
+- Falta validación live móvil por móvil; la mecánica está cubierta por pruebas
+  con fixtures reales.
 
 ---
 

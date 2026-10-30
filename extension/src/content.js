@@ -498,12 +498,17 @@
     setText(els.angle, angAbs == null ? '—' : Math.round(angAbs) + '°');
     const samples = profile.samples && profile.samples.power;
     const calSource = profile.gravitySource || 'default';
+    const originSource = profile.originSource || 'default';
+    const originSamples = profile.originMeasured && profile.originMeasured.samples;
+    const originLabel = originSource === 'measured'
+      ? 'origen medido (' + (originSamples || 0) + ')'
+      : (originSource === 'tuned' ? 'origen fijo' : 'origen por defecto');
     setText(els.cal, samples ? 'CALIBRADO (' + samples + ')'
       : (calSource === 'predicted' ? 'PREDICHO' : 'FALLBACK'));
     if (els.cal) {
       els.cal.title = 'móvil ' + (profile.mobile || '?') +
         ' · g ' + (Math.round(profile.gravity * 10) / 10) +
-        ' · ' + calSource;
+        ' · ' + calSource + ' · ' + originLabel;
     }
     updateDiag();
 
@@ -596,6 +601,7 @@
       panel.dataset.mobile = snapshot.profile.mobile || '';
       panel.dataset.gravity = String(Math.round((snapshot.profile.gravity || 0) * 10) / 10);
       panel.dataset.gravitySource = snapshot.profile.gravitySource || '';
+      panel.dataset.originSource = snapshot.profile.originSource || '';
     }
     if (snapshot && snapshot.me) {
       panel.dataset.look = String(snapshot.me.look);

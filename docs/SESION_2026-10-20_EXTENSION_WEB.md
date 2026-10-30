@@ -732,3 +732,49 @@ móviles**.
 
 - Validación live móvil por móvil y origen por móvil.
 - Tipo de bala (§16.16) y viento por móvil (Boomer `b=1,39`) si se habilitan.
+
+---
+
+## 16. Origen del cañón por móvil (2026-10-29, v0.1.6)
+
+### Pedido
+
+Realizar el primer pendiente: el **origen del cañón** (offset) para cada móvil,
+en lugar de reutilizar el de Armor.
+
+### Qué se hizo
+
+- `AutoCalibration.getOrigin(mobile)` calcula la mediana de `(a, c)` del cubo
+  del móvil y la **MAD** (mediana de las distancias a la mediana), con
+  `stable = MAD ≤ maxOriginMad` (2 unidades). El solver ya deshacía el espejo
+  (`look`) y la rotación (`body`) en cada `play`.
+- `getProfile(mobile)` aplica el origen medido solo si el móvil **no** tiene un
+  origen ajustado, hay al menos `minOriginSamples` (3) muestras y son estables.
+  `TUNED_ORIGINS` conserva Armor (`20,45 / 25,83`), validado en vivo, para no
+  degradarlo con una medición ruidosa.
+- Nuevas opciones: `calibrateOrigin` (`'auto'` por defecto, `true` fuerza desde
+  la primera muestra, `false` solo mide), `minOriginSamples` y `maxOriginMad`.
+- El perfil publica `originSource` (`measured` / `tuned` / `default`),
+  `originCalibrated` y `originMeasured` (`a`, `c`, `samples`, `mad`, `stable`).
+- El panel añade el origen al tooltip (`origen medido (n)`, `origen fijo`,
+  `origen por defecto`) y `data-origin-source`.
+- `resetPhysics()` conserva los orígenes (propiedad del sprite, no de la sala);
+  `reset()` los borra.
+
+### Pruebas
+
+- Auto-calibración **27/27**. Nuevas:
+  - Boomer aplica su origen tras 3 muestras estables.
+  - Con 2 muestras sigue el origen por defecto.
+  - Armor conserva el valor ajustado (`tuned`).
+  - Una secuencia inestable (MAD 20) no se aplica.
+- Integración **54/54**. Nuevo: 3 disparos de Boomer con la boca en
+  `(816, 92)` dejan `originSource = 'measured'`, el snapshot usa ese origen y el
+  panel publica `data-origin-source`.
+- `manifest.json` → **0.1.6**.
+
+### Pendiente
+
+- Validación live móvil por móvil: confirmar que el offset medido coincide con
+  el cañón real (los 3 primeros disparos de un móvil sin ajuste usan Armor).
+- Tipo de bala (§16.16) y viento por móvil si se habilitan.
