@@ -1760,14 +1760,18 @@ de móvil, y no debe haber contaminación entre cubos. Sin regresiones en 23/23 
 
 
 
-### 16.19 Origen del cañón por móvil (2026-10-29, v0.1.6)
+### 16.19 Origen del cañón por móvil (2026-10-29, v0.1.6/v0.1.7)
 
 #### Problema
 
 El origen del cañón es un offset local del sprite, distinto para cada móvil.
 Hasta v0.1.5 todos usaban el de Armor `(a=20,45, c=25,83)`; en Boomer y el
-resto el punto de salida podía quedar desplazado unos píxeles, lo que afectaba
-a la parábola y a la potencia necesaria.
+resto el punto de salida quedaba desplazado, lo que afectaba a la parábola y a
+la potencia. La v0.1.6 lo auto-calibró con `play`, pero los primeros tiros de
+un móvil seguían usando el offset de Armor y la medición podía tardar en
+estabilizarse. La v0.1.7 añade la **tabla `aim` del cliente** como origen
+inmediato: el disparo sale del mismo punto donde nace el ángulo de cada móvil
+desde el primer tiro.
 
 #### Modelo
 
@@ -1792,26 +1796,58 @@ c = dx·sin(body) − dy·cos(body)
 No usa el ángulo de apuntado ni la potencia: el offset es fijo en el marco del
 cuerpo. Se descartan muestras con `|a|` o `|c|` fuera de rango (> 100).
 
+#### Tabla `aim` (origen inmediato)
+
+La ficha de cada móvil del cliente trae un vector `[ángulo, radio]` con
+`0° = horizontal hacia delante` y positivo hacia arriba. El origen local es:
+
+```text
+a = radio · cos(ángulo)
+c = radio · sin(ángulo)
+```
+
+La tabla viene de `helper.js:690-699` (`aim`) y coincide con el origen live de
+Armor: `33·(cos 52°, sin 52°) = (20,32, 26,00)` frente a `(20,45, 25,83)`
+medido en vivo. Se usa como **semilla** para los 21 móviles:
+
+| Móvil | `aim` | `a` | `c` |
+| --- | --- | ---: | ---: |
+| Armor / Eléctrico / Frog / Kalsiddon / Grub | 52°, 33 | 20,32 | 26,00 |
+| Ice / Bigfoot / Dragon / Dragon2 | 58°, 50 | 26,50 | 42,40 |
+| Lightning | 58°, 44 | 23,32 | 37,31 |
+| JD | 68°, 45 | 16,86 | 41,72 |
+| Asate | 40°, 30 | 22,98 | 19,28 |
+| Random / Knight / Trico / Mage / Turtle | 51°, 51 | 32,10 | 39,63 |
+| Fox | 30°, 44 | 38,11 | 22,00 |
+| Aduka / NAK / Boomer | 130°, 40 | −25,71 | 30,64 |
+
+Aduka y NAK tienen un `adukafix` especial en el cliente que no se replica; su
+primer tiro puede quedar algo desplazado hasta que la auto-calibración lo
+corrija. Boomer no lleva ese fix: su cañón nace detrás/arriba del centro.
+
 #### Aplicación
 
-`AutoCalibration.getOrigin(mobile)` devuelve la mediana de las últimas 8
-muestras del móvil, la MAD (mediana de las distancias a la mediana) y
-`stable = MAD ≤ maxOriginMad` (2 unidades). `getProfile(mobile)` decide:
+`getProfile(mobile)` combina tres fuentes, en este orden:
+
+1. **Medición** (`originMeasured`): mediana de las últimas 8 muestras del móvil.
+2. **Ajuste fijo** (`TUNED_ORIGINS`): Armor `(20,45, 25,83)`, validado en vivo.
+3. **Predicción** (`MOBILE_AIM`): vector `aim` del móvil.
+4. **Defecto**: Armor si el móvil no está en la tabla.
+
+`getOrigin(mobile)` devuelve la mediana, la MAD (mediana de las distancias a la
+mediana) y `stable = MAD ≤ maxOriginMad` (2 unidades). La decisión es:
 
 | Modo | Condición | Origen aplicado | `originSource` |
 | --- | --- | --- | --- |
-| `'auto'` (defecto) | móvil sin origen ajustado, ≥ 3 muestras y estable | mediana medida | `measured` |
-| `'auto'` | móvil con `TUNED_ORIGINS` | valor ajustado | `tuned` |
-| `'auto'` | menos de 3 muestras o inestable | `DEFAULT_PROFILE.origin` | `default` |
+| `'auto'` (defecto) | móvil sin ajuste fijo, ≥ 3 muestras, estable y a ≤ 8 del `aim` | mediana medida | `measured` |
+| `'auto'` | móvil con `TUNED_ORIGINS` (Armor) | valor ajustado | `tuned` |
+| `'auto'` | móvil con `MOBILE_AIM` y < 3 muestras o inestable | vector `aim` | `predicted` |
+| `'auto'` | móvil desconocido y sin muestras | `DEFAULT_PROFILE.origin` | `default` |
 | `true` | ≥ 1 muestra | mediana medida | `measured` |
-| `false` | siempre | `TUNED_ORIGINS` o defecto | `tuned` / `default` |
+| `false` | siempre | ajuste fijo, `aim` o defecto | `tuned` / `predicted` / `default` |
 
-`TUNED_ORIGINS` contiene hoy solo Armor (`DEFAULT_PROFILE.origin`). Así el
-ajuste validado en vivo no se degrada por una medición ruidosa; para
-re-calibrar Armor se usa `calibrateOrigin: true` o se actualiza la tabla.
-
-Opciones nuevas: `calibrateOrigin` (`'auto'` por defecto), `minOriginSamples`
-(3) y `maxOriginMad` (2). `resetPhysics()` conserva los orígenes porque son una
+Opciones: `calibrateOrigin` (`'auto'` por defecto), `minOriginSamples` (3),
+`maxOriginMad` (2) y `maxOriginSeedDelta` (8). `resetPhysics()` conserva los orígenes porque son una
 propiedad del sprite, no de la sala; `reset()` los borra.
 
 #### Diagnóstico
@@ -1819,27 +1855,35 @@ propiedad del sprite, no de la sala; `reset()` los borra.
 El perfil publica `origin` (aplicado), `originSource`, `originCalibrated`
 (`source === 'measured'`) y `originMeasured = { a, c, samples, mad, stable }`.
 El panel añade el origen al tooltip de calibración (`origen medido (n)`,
-`origen fijo`, `origen por defecto`) y `data-origin-source`.
+`origen fijo`, `origen predicho`, `origen por defecto`) y `data-origin-source`.
 
 #### Pruebas
 
-- Auto-calibración **27/27**. Nuevas:
-  - Boomer aplica su origen tras 3 muestras estables (20, 26).
-  - Con 2 muestras sigue el origen por defecto.
+- Auto-calibración **30/30**. Nuevas:
+  - La tabla `aim` siembra los 21 móviles y el vector de Armor coincide con el
+    origen live (distancia < 0,5).
+  - Boomer arranca con `(a=−25,71, c=30,64)` (`predicted`) y tras 3 muestras
+    estables cerca de su `aim` aplica la mediana (`measured`).
+  - Con 2 muestras sigue el vector `aim`; una secuencia inestable (MAD 20)
+    también cae al `aim`.
+  - Una medición estable pero a ~58 unidades del `aim` **no** se aplica
+    (guarda `maxOriginSeedDelta = 8`); `calibrateOrigin: true` sí la fuerza.
   - Armor conserva el valor ajustado aunque acumule muestras (`tuned`).
-  - Una secuencia inestable (MAD 20) no se aplica.
-- Integración **54/54**. Nuevo: tres disparos de Boomer con la boca en
-  `(816, 92)` dejan `originSource = 'measured'`, el snapshot usa ese origen y el
-  panel publica `data-origin-source`.
+- Integración **56/56**. Nuevo: Boomer usa su origen `aim` desde el primer
+  snapshot; tras 3 disparos con la boca en `(761, 95)` el origen medido refina
+  el perfil y el snapshot usa ese punto; el panel publica `data-origin-source`.
 
 #### Límites
 
-- Los tres primeros disparos de un móvil sin origen ajustado usan el de Armor;
-  el error es de pocos píxeles y desaparece al tercer disparo estable.
+- El vector `aim` es una tabla del cliente/helper; si una versión futura cambia
+  un sprite, la auto-calibración lo corrige tras 3 muestras estables.
 - `play.s[0]/s[1]` llega redondeado a píxel; la MAD absorbe el ruido normal,
   pero una secuencia con `body` mal resuelto se descarta hasta estabilizarse.
-- Falta validación live móvil por móvil; la mecánica está cubierta por pruebas
-  con fixtures reales.
+- Aduka/NAK (`adukafix`) y Boomer son los casos más sensibles; falta validarlos
+  en vivo móvil por móvil.
+- Con el origen propio de Boomer (detrás/arriba) la distancia al destino es algo
+  mayor; su gravedad más baja compensa y la potencia queda cerca de la de
+  Armor, no siempre por debajo.
 
 ---
 

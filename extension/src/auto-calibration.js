@@ -34,10 +34,40 @@
 
   // Orígenes ya ajustados a mano/en vivo. Para estos móviles la
   // auto-calibración mide pero no sustituye el valor: así no se degrada un
-  // ajuste que ya funciona (Armor). El resto se auto-calibra tras
-  // `minOriginSamples` disparos estables.
+  // ajuste que ya funciona (Armor). El resto arranca con el vector `aim` de su
+  // móvil y se afina tras `minOriginSamples` disparos estables.
   const TUNED_ORIGINS = Object.freeze({
     armor: DEFAULT_PROFILE.origin,
+  });
+
+  // Boca del cañón por móvil en el marco local del cuerpo: `[ángulo, radio]`
+  // con 0° = horizontal hacia delante y positivo hacia arriba. Es la tabla
+  // `aim` del cliente (helper.js:690-699) y coincide con el origen live de
+  // Armor: 33·(cos 52°, sin 52°) = (20,32, 26,00) frente a (20,45, 25,83).
+  // Así el disparo sale del mismo punto que el inicio del ángulo de cada móvil
+  // desde el primer tiro, sin esperar a la auto-calibración.
+  const MOBILE_AIM = Object.freeze({
+    armor: Object.freeze([52, 33]),
+    ice: Object.freeze([58, 50]),
+    aduka: Object.freeze([130, 40]),
+    lightning: Object.freeze([58, 44]),
+    bigfoot: Object.freeze([58, 50]),
+    jd: Object.freeze([68, 45]),
+    asate: Object.freeze([40, 30]),
+    random: Object.freeze([51, 51]),
+    knight: Object.freeze([51, 51]),
+    fox: Object.freeze([30, 44]),
+    dragon: Object.freeze([58, 50]),
+    dragon2: Object.freeze([58, 50]),
+    nak: Object.freeze([130, 40]),
+    trico: Object.freeze([51, 51]),
+    mage: Object.freeze([51, 51]),
+    turtle: Object.freeze([51, 51]),
+    boomer: Object.freeze([130, 40]),
+    electrico: Object.freeze([52, 33]),
+    frog: Object.freeze([52, 33]),
+    kalsiddon: Object.freeze([52, 33]),
+    grub: Object.freeze([52, 33]),
   });
 
   const DEFAULTS = Object.freeze({
@@ -55,6 +85,9 @@
     minOriginSamples: 3,
     // Mediana de las desviaciones (MAD) máxima, en unidades de mundo.
     maxOriginMad: 2,
+    // Distancia máxima entre la medición y el vector `aim` para aceptarla.
+    // Evita que una medición sesgada descalibre el origen del cliente.
+    maxOriginSeedDelta: 8,
   });
 
   function asNumber(value) {
@@ -122,6 +155,20 @@
 
   function normalizeMobile(mobile) {
     return mobileKey(mobile);
+  }
+
+  /**
+   * Origen predicho por la tabla `aim` del móvil. Es el punto donde nace el
+   * ángulo de disparo (boca del cañón) en el marco local del cuerpo.
+   */
+  function aimOrigin(mobile) {
+    const aim = MOBILE_AIM[normalizeMobile(mobile)];
+    if (!aim) return null;
+    const rad = aim[0] * Math.PI / 180;
+    return {
+      a: aim[1] * Math.cos(rad),
+      c: aim[1] * Math.sin(rad),
+    };
   }
 
   /**
@@ -506,6 +553,7 @@
         : (predictedGravity !== null ? 'predicted' : 'default');
       const measuredOrigin = this.getOrigin(key);
       const tunedOrigin = TUNED_ORIGINS[key] || null;
+      const predictedOrigin = aimOrigin(key);
       let appliedOrigin = null;
       if (this.options.calibrateOrigin === true) {
         // Modo forzado (pruebas/ajuste manual): aplica desde la primera muestra.
@@ -514,11 +562,20 @@
           measuredOrigin &&
           measuredOrigin.samples >= this.options.minOriginSamples &&
           measuredOrigin.stable) {
-        appliedOrigin = measuredOrigin;
+        // Solo refina si la medición está cerca del vector `aim` del móvil;
+        // una muestra sesgada no debe mover el cañón fuera de su sitio.
+        const seedDelta = predictedOrigin
+          ? Math.hypot(measuredOrigin.a - predictedOrigin.a,
+            measuredOrigin.c - predictedOrigin.c)
+          : 0;
+        if (seedDelta <= this.options.maxOriginSeedDelta) {
+          appliedOrigin = measuredOrigin;
+        }
       }
       const originSource = appliedOrigin ? 'measured'
-        : (tunedOrigin ? 'tuned' : 'default');
-      const origin = appliedOrigin || tunedOrigin || DEFAULT_PROFILE.origin;
+        : (tunedOrigin ? 'tuned' : (predictedOrigin ? 'predicted' : 'default'));
+      const origin = appliedOrigin || tunedOrigin || predictedOrigin ||
+        DEFAULT_PROFILE.origin;
 
       return {
         mobile: key,
@@ -600,6 +657,8 @@
     median: median,
     splitTopLevel: splitTopLevel,
     MOBILE_A: MOBILE_A,
+    MOBILE_AIM: MOBILE_AIM,
+    aimOrigin: aimOrigin,
     mobileKey: mobileKey,
   };
 

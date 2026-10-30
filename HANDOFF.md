@@ -10,7 +10,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 27/27 y 54/54; calibración por móvil, cobertura de los 21 móviles y origen por móvil (v0.1.6), validación live pendiente. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 30/30 y 56/56; calibración por móvil, cobertura de los 21 móviles y origen por móvil con tabla `aim` + auto-calibración (v0.1.7), validación live pendiente. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
@@ -136,15 +136,18 @@ out/            build (ignorado por git)
    La v0.1.5 extiende la cobertura a los **21 móviles** de la tabla con pruebas
    de predicción y de potencia/trayectoria (Armor vs Boomer vs Dragon2); ver
    §16.18 del diseño.
-5. **(Implementado v0.1.6, validación live pendiente) Origen del cañón por
-   móvil.** `AutoCalibration` resuelve `(a, c)` desde `play.s[0]/s[1]` y lo
-   guarda por móvil. En modo `auto` se aplica tras **3 muestras estables**
-   (MAD ≤ 2); Armor conserva su valor ajustado (`TUNED_ORIGINS`) y solo se
-   mide. Opciones: `calibrateOrigin: 'auto' | true | false`,
-   `minOriginSamples`, `maxOriginMad`. El perfil publica `originSource`
-   (`measured` / `tuned` / `default`) y `originMeasured` (`mad`, `stable`).
-   Detalle en §16.19 del diseño. Falta: validar en vivo que el offset medido de
-   Boomer y del resto coincide con el cañón real.
+5. **(Implementado v0.1.6/v0.1.7, validación live pendiente) Origen del cañón
+   por móvil.** La v0.1.7 usa la tabla `aim` del cliente (`[ángulo, radio]`:
+   `a = r·cos`, `c = r·sin`) como origen inmediato de los 21 móviles; Armor
+   `[52°, 33]` coincide con el valor live `(20,45, 25,83)`. Así el tiro sale
+   del mismo punto que el inicio del ángulo del móvil desde el primer disparo.
+   Además, `AutoCalibration` resuelve `(a, c)` desde `play.s[0]/s[1]` y lo
+   afina tras **3 muestras estables** (MAD ≤ 2) y a ≤ 8 unidades del `aim`; Armor conserva su valor
+   ajustado (`TUNED_ORIGINS`) y solo se mide. Opciones: `calibrateOrigin:
+   'auto' | true | false`, `minOriginSamples`, `maxOriginMad`. El perfil
+   publica `originSource` (`measured` / `tuned` / `predicted` / `default`) y
+   `originMeasured` (`mad`, `stable`). Detalle en §16.19 del diseño. Falta:
+   validar en vivo Boomer y el resto, sobre todo Aduka/NAK (`adukafix`).
 6. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---

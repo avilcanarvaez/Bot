@@ -502,7 +502,8 @@
     const originSamples = profile.originMeasured && profile.originMeasured.samples;
     const originLabel = originSource === 'measured'
       ? 'origen medido (' + (originSamples || 0) + ')'
-      : (originSource === 'tuned' ? 'origen fijo' : 'origen por defecto');
+      : (originSource === 'tuned' ? 'origen fijo'
+        : (originSource === 'predicted' ? 'origen predicho' : 'origen por defecto'));
     setText(els.cal, samples ? 'CALIBRADO (' + samples + ')'
       : (calSource === 'predicted' ? 'PREDICHO' : 'FALLBACK'));
     if (els.cal) {

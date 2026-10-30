@@ -138,20 +138,23 @@ Reglas:
 - Fallback inicial: `powerScale = 2.269`, `gravity = 390`, origen Armor
   `(a=20.45, c=25.83)`.
 - No actualiza `gravity` con `play` de otros jugadores.
-- **Origen por móvil**: cada `play` propio resuelve el offset local `(a, c)` del
-  cañón y lo guarda en el cubo del móvil. En modo `auto` (por defecto) se
-  aplica la mediana cuando hay **3 muestras estables** (MAD ≤ 2 unidades); los
-  móviles con origen ya ajustado (`TUNED_ORIGINS`, hoy Armor) conservan su
-  valor y solo se miden. `calibrateOrigin: true` fuerza la medición desde la
-  primera muestra; `false` solo mide.
+- **Origen por móvil**: cada móvil arranca con el vector `aim` de su ficha
+  (`[ángulo, radio]`; Armor `[52°, 33]` → `a=20,32, c=26,00`), que es el mismo
+  punto donde nace el ángulo de disparo del cliente. Así el tiro sale del
+  cañón correcto desde el primer disparo, sin esperar a la calibración.
+  Después, cada `play` propio resuelve el offset local `(a, c)` y, en modo
+  `auto` (por defecto), se aplica la mediana cuando hay **3 muestras estables**
+  (MAD ≤ 2 unidades) y la medición está a **≤ 8 unidades** del vector `aim`;
+  así una muestra sesgada no descalibra el cañón. Los móviles con origen ya ajustado (`TUNED_ORIGINS`, hoy
+  Armor) conservan su valor y solo se miden. `calibrateOrigin: true` fuerza la
+  medición desde la primera muestra; `false` solo mide.
 - El perfil publica `mobile`, `gravitySource` (`observed` / `predicted` /
-  `default`), `originSource` (`measured` / `tuned` / `default`), `samples` del
-  cubo activo, `originMeasured` (mediana, MAD, muestras y estabilidad) y el
-  `origin` aplicado. El panel muestra `CALIBRADO (n)`, `PREDICHO` o `FALLBACK`
-  según la gravedad, y el origen en el tooltip (`origen medido (n)` /
-  `origen fijo` / `origen por defecto`) y en `data-origin-source`.
-- Los primeros disparos de un móvil sin origen ajustado usan el de Armor; a
-  partir del tercer disparo estable se aplica el suyo.
+  `default`), `originSource` (`measured` / `tuned` / `predicted` / `default`),
+  `samples` del cubo activo, `originMeasured` (mediana, MAD, muestras y
+  estabilidad) y el `origin` aplicado. El panel muestra `CALIBRADO (n)`,
+  `PREDICHO` o `FALLBACK` según la gravedad, y el origen en el tooltip
+  (`origen medido (n)` / `origen fijo` / `origen predicho` / `origen por
+  defecto`) y en `data-origin-source`.
 
 ## Pruebas
 
@@ -164,10 +167,10 @@ test/fixtures/captured-shots.js
 test/auto-calibration.test.js
 ```
 
-El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **27/27**.
+El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **30/30**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **54/54**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+en **56/56**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
 clic`, trayectoria a izquierda y derecha, `look=0/1`, apuntado espejado que se
 alinea con el lado real (izquierda y derecha), marcador de potencia visible,
 reset por sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde
@@ -178,9 +181,11 @@ no contienen el token de sesión.
 
 - El hook de WebSocket es page-level: no cubre WebSockets creados dentro de
   Workers o iframes.
-- El origen se auto-calibra con datos de `play`; los **tres primeros disparos**
-  de un móvil sin origen ajustado usan el de Armor. Armor conserva su valor
-  ajustado (`TUNED_ORIGINS`) y no se sustituye automáticamente.
+- El origen arranca del vector `aim` del móvil; la auto-calibración con `play`
+  lo afina tras **3 muestras estables**. Armor conserva su valor ajustado
+  (`TUNED_ORIGINS`) y no se sustituye automáticamente. Aduka/NAK tienen un
+  `adukafix` en el cliente que no se replica; su primer tiro puede quedar algo
+  desplazado hasta que la auto-calibración lo corrija.
 - La calibración de potencia por **tipo de bala** sigue pendiente (§16.16 del
   diseño): los cubos son por móvil, no por `S1/S2/SS`. Si se cambia de bala, la
   escala puede variar ~3–4 %.

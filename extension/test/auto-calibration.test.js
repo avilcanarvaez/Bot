@@ -343,31 +343,86 @@
     }
   }
 
+  test('la tabla aim siembra el origen de cada móvil', function () {
+    const cal = new api.AutoCalibration();
+    const armor = cal.getProfile('Armor2D.png');
+    assert(armor.originSource === 'tuned', 'Armor conserva el ajuste live');
+    approx(armor.origin.a, 20.45, 1e-12, 'Armor a');
+    const boomer = cal.getProfile('Boomer2D.png');
+    assert(boomer.originSource === 'predicted', 'Boomer predicho');
+    approx(boomer.origin.a, 40 * Math.cos(130 * Math.PI / 180), 1e-9, 'Boomer a');
+    approx(boomer.origin.c, 40 * Math.sin(130 * Math.PI / 180), 1e-9, 'Boomer c');
+    const fox = cal.getProfile('Fox2D.png');
+    assert(fox.originSource === 'predicted', 'Fox predicho');
+    approx(fox.origin.a, 44 * Math.cos(30 * Math.PI / 180), 1e-9, 'Fox a');
+    approx(fox.origin.c, 44 * Math.sin(30 * Math.PI / 180), 1e-9, 'Fox c');
+    const keys = Object.keys(api.MOBILE_AIM);
+    assert(keys.length === 21, '21 móviles con aim');
+    keys.forEach(function (key) {
+      const o = api.aimOrigin(key);
+      assert(o && Number.isFinite(o.a) && Number.isFinite(o.c), 'aim ' + key);
+    });
+    // El vector aim de Armor debe coincidir con el valor medido en vivo.
+    const aimArmor = api.aimOrigin('Armor2D.png');
+    assert(Math.hypot(aimArmor.a - 20.45, aimArmor.c - 25.83) < 0.5,
+      'aim de Armor ≈ origen live');
+  });
+
   test('auto-calibra el origen de un móvil tras 3 muestras estables', function () {
     const cal = new api.AutoCalibration();
     const f = fixtures.look0[0];
-    const s = [911, -13, 153, 461, 0, 335];
+    // Boca de Boomer cerca de su vector aim (130°, 40): el ajuste medido debe
+    // refinar la semilla, no saltar a un punto arbitrario.
+    const s = [957, -18, 153, 461, 0, 335];
     feedOrigin(cal, f, '/static/images/mobiles/Boomer2D.png', 3, s);
     const profile = cal.getProfile('Boomer2D.png');
     assert(profile.originCalibrated === true, 'calibrado');
     assert(profile.originSource === 'measured', 'fuente');
-    approx(profile.origin.a, 20, 1e-9, 'a');
-    approx(profile.origin.c, 26, 1e-9, 'c');
+    approx(profile.origin.a, -26, 1e-9, 'a');
+    approx(profile.origin.c, 31, 1e-9, 'c');
     assert(profile.originMeasured.samples === 3, 'muestras');
     assert(profile.originMeasured.stable === true, 'estable');
   });
 
-  test('con menos de 3 muestras el origen sigue por defecto', function () {
+  test('con menos de 3 muestras se usa el vector aim del móvil', function () {
     const cal = new api.AutoCalibration();
     const f = fixtures.look0[0];
     feedOrigin(cal, f, '/static/images/mobiles/Boomer2D.png', 2,
+      [957, -18, 153, 461, 0, 335]);
+    const profile = cal.getProfile('Boomer2D.png');
+    assert(profile.originCalibrated === false, 'no aplicado');
+    assert(profile.originSource === 'predicted', 'fuente');
+    approx(profile.origin.a, 40 * Math.cos(130 * Math.PI / 180), 1e-9, 'a aim');
+    approx(profile.origin.c, 40 * Math.sin(130 * Math.PI / 180), 1e-9, 'c aim');
+    assert(profile.originMeasured.samples === 2, 'medido');
+  });
+
+  test('una medición lejos del aim no descalibra el móvil', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    // (20, 26) está a ~58 unidades del aim de Boomer (-25,71, 30,64): la
+    // medición es estable, pero no debe sustituir el origen del cliente.
+    feedOrigin(cal, f, '/static/images/mobiles/Boomer2D.png', 3,
       [911, -13, 153, 461, 0, 335]);
     const profile = cal.getProfile('Boomer2D.png');
     assert(profile.originCalibrated === false, 'no aplicado');
-    assert(profile.originSource === 'default', 'fuente');
-    approx(profile.origin.a, 20.45, 1e-12, 'a por defecto');
-    approx(profile.origin.c, 25.83, 1e-12, 'c por defecto');
-    assert(profile.originMeasured.samples === 2, 'medido');
+    assert(profile.originSource === 'predicted', 'conserva el aim');
+    approx(profile.origin.a, 40 * Math.cos(130 * Math.PI / 180), 1e-9, 'a aim');
+    approx(profile.origin.c, 40 * Math.sin(130 * Math.PI / 180), 1e-9, 'c aim');
+    assert(profile.originMeasured.samples === 3, 'medido');
+    assert(profile.originMeasured.stable === true, 'estable');
+  });
+
+  test('calibrateOrigin true fuerza la medición aunque esté lejos del aim', function () {
+    const cal = new api.AutoCalibration({ calibrateOrigin: true });
+    const f = fixtures.look0[0];
+    feedOrigin(cal, f, '/static/images/mobiles/Boomer2D.png', 1,
+      [911, -13, 153, 461, 0, 335]);
+    const profile = cal.getProfile('Boomer2D.png');
+    assert(profile.originCalibrated === true, 'forzado');
+    assert(profile.originSource === 'measured', 'medido');
+    approx(profile.origin.a, 20, 1e-9, 'a');
+    approx(profile.origin.c, 26, 1e-9, 'c');
   });
 
   test('Armor conserva su origen ajustado aunque haya muestras', function () {
@@ -393,7 +448,9 @@
     const profile = cal.getProfile('Boomer2D.png');
     assert(profile.originCalibrated === false, 'no aplicado');
     assert(profile.originMeasured.stable === false, 'inestable');
-    assert(profile.originSource === 'default', 'fuente');
+    assert(profile.originSource === 'predicted', 'fuente');
+    approx(profile.origin.a, 40 * Math.cos(130 * Math.PI / 180), 1e-9, 'a aim');
+    approx(profile.origin.c, 40 * Math.sin(130 * Math.PI / 180), 1e-9, 'c aim');
   });
 
   root.__DS_TEST_RESULTS = results;

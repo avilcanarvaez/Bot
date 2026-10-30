@@ -763,18 +763,35 @@ en lugar de reutilizar el de Armor.
 
 ### Pruebas
 
-- Auto-calibración **27/27**. Nuevas:
+- Auto-calibración **30/30**. Nuevas:
   - Boomer aplica su origen tras 3 muestras estables.
   - Con 2 muestras sigue el origen por defecto.
   - Armor conserva el valor ajustado (`tuned`).
   - Una secuencia inestable (MAD 20) no se aplica.
-- Integración **54/54**. Nuevo: 3 disparos de Boomer con la boca en
+- Integración **56/56**. Nuevo: 3 disparos de Boomer con la boca en
   `(816, 92)` dejan `originSource = 'measured'`, el snapshot usa ese origen y el
   panel publica `data-origin-source`.
 - `manifest.json` → **0.1.6**.
 
+### Ajuste v0.1.7: tabla `aim` como origen inmediato
+
+La primera versión auto-calibrada seguía usando el offset de Armor hasta juntar
+3 muestras, y el usuario notó que el disparo no salía del inicio del ángulo del
+móvil. Se añadió la tabla `aim` del cliente (`[ángulo, radio]`; Armor `[52°, 33]`
+→ `a=20,32, c=26,00`, a menos de 0,5 del valor live `(20,45, 25,83)`), que da
+el origen de cada móvil desde el primer tiro:
+
+- `MOBILE_AIM` cubre los 21 móviles; `originSource` añade `predicted`.
+- La auto-calibración sigue refinando tras 3 muestras estables, pero solo si la
+  medición está a ≤ 8 unidades del `aim` (guarda `maxOriginSeedDelta`); Armor
+  conserva su `TUNED_ORIGINS`.
+- Boomer (`130°, 40`) arranca en `(-25,71, 30,64)`, detrás/arriba del centro.
+- Pruebas: **30/30** auto-calibración y **56/56** integración (Boomer usa su
+  `aim` desde el primer snapshot y luego el medido).
+- `manifest.json` → **0.1.7**.
+
 ### Pendiente
 
-- Validación live móvil por móvil: confirmar que el offset medido coincide con
-  el cañón real (los 3 primeros disparos de un móvil sin ajuste usan Armor).
+- Validación live móvil por móvil: confirmar que el vector `aim` coincide con
+  el cañón real (Aduka/NAK tienen `adukafix` y Boomer es el caso más sensible).
 - Tipo de bala (§16.16) y viento por móvil si se habilitan.

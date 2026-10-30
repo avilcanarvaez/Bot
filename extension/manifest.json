@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DragonShot — Asistente de tiro",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Overlay de origen, destino, trayectoria y potencia para DragonBound. No automatiza el disparo.",
   "minimum_chrome_version": "111",
   "permissions": [],
