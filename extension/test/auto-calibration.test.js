@@ -197,6 +197,20 @@
     assert(profile.originCalibrated === true, 'originCalibrated');
   });
 
+  test('con calibrateOrigin desactivado se mide el origen pero no se aplica', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    cal.observeGameShoot(f.shoot, { mobile: f.mobile });
+    cal.observePlay(playFor(f));
+    const profile = cal.getProfile(f.mobile);
+    assert(profile.originCalibrated === false, 'no aplicado');
+    approx(profile.origin.a, 20.45, 1e-12, 'origen por defecto');
+    approx(profile.origin.c, 25.83, 1e-12, 'origen por defecto');
+    assert(profile.originMeasured && profile.originMeasured.samples === 1, 'medido');
+    approx(profile.originMeasured.a, 20, 1e-9, 'a medido');
+    approx(profile.originMeasured.c, 26, 1e-9, 'c medido');
+  });
+
   test('onChange recibe el perfil actualizado', function () {
     let seen = null;
     const cal = new api.AutoCalibration({
@@ -207,6 +221,71 @@
     cal.observePlay(playFor(f));
     assert(seen && seen.samples.power === 1, 'callback');
     approx(seen.powerScale, 461 / 195, 1e-12, 'callback powerScale');
+  });
+
+
+  test('mobileKey normaliza ruta, extensión y sufijo 2D', function () {
+    assert(api.mobileKey('/static/images/mobiles/Boomer2D.png') === 'boomer', 'boomer');
+    assert(api.mobileKey('Armor2D.png') === 'armor', 'armor');
+    assert(api.mobileKey('Dragon22D.png') === 'dragon2', 'dragon2');
+    assert(api.mobileKey('') === 'unknown', 'vacío');
+  });
+
+  test('Boomer predice su gravedad desde la unidad observada en Armor', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.look0[0];
+    cal.observeGameShoot(f.shoot, { mobile: f.mobile });
+    cal.observePlay(playFor(f));
+    const armor = cal.getProfile('Armor2D.png');
+    approx(armor.gravity, 402, 1e-12, 'Armor observada');
+    const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
+    approx(boomer.gravity, 402 / 75 * 62.5, 1e-9, 'Boomer predicha');
+    assert(boomer.gravitySource === 'predicted', 'gravitySource');
+    assert(boomer.samples.gravity === 0, 'sin muestras propias');
+    // La potencia es del disparo, no del móvil: se hereda la global.
+    approx(boomer.powerScale, 461 / 195, 1e-12, 'potencia global');
+    assert(boomer.samples.power === 0, 'sin muestras propias de potencia');
+  });
+
+  test('Boomer sin ninguna observación usa la unidad de respaldo', function () {
+    const cal = new api.AutoCalibration();
+    const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
+    approx(boomer.gravity, 390 / 75 * 62.5, 1e-12, 'gravedad de respaldo');
+    assert(boomer.gravitySource === 'predicted', 'gravitySource');
+    approx(boomer.powerScale, 2.269, 1e-12, 'potencia de respaldo');
+  });
+
+  test('las muestras de Boomer y Armor no se mezclan', function () {
+    const cal = new api.AutoCalibration();
+    const armor = fixtures.look0[0];
+    cal.observeGameShoot(armor.shoot, { mobile: armor.mobile });
+    cal.observePlay(playFor(armor));
+
+    const boomerShot = { x: 100, y: 100, body: 0, look: 1, ang: 45, power: 100, time: 1000 };
+    const boomerPlay = {
+      x: 100, y: 100, look: 1, time: 1000,
+      s: [110, 90, 45, 229, 0, 335],
+    };
+    cal.observeGameShoot(boomerShot, { mobile: '/static/images/mobiles/Boomer2D.png' });
+    const result = cal.observePlay(playFor(boomerPlay));
+    assert(result.matched && result.calibrated, 'boomer matched');
+
+    const a = cal.getProfile('Armor2D.png');
+    const b = cal.getProfile('Boomer2D.png');
+    approx(a.gravity, 402, 1e-12, 'Armor intacta');
+    approx(a.powerScale, 461 / 195, 1e-12, 'Armor powerScale');
+    approx(b.gravity, 335, 1e-12, 'Boomer observada');
+    approx(b.powerScale, 2.29, 1e-12, 'Boomer powerScale');
+    assert(b.gravitySource === 'observed', 'Boomer observed');
+    assert(a.samples.power === 1 && b.samples.power === 1, 'un cubo por móvil');
+  });
+
+  test('un móvil sin tabla cae al perfil por defecto', function () {
+    const cal = new api.AutoCalibration();
+    const profile = cal.getProfile('MysteryMobile2D.png');
+    approx(profile.gravity, 390, 1e-12, 'gravity');
+    assert(profile.gravitySource === 'default', 'gravitySource');
+    approx(profile.powerScale, 2.269, 1e-12, 'powerScale');
   });
 
   root.__DS_TEST_RESULTS = results;

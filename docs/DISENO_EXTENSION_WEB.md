@@ -1466,6 +1466,221 @@ auto-calibración y **41/41** integración.
 La conversión `look=0 → −raw`, `look=1 → raw` queda confirmada contra el
 servidor, no solo contra el arnés.
 
+### 16.16 Pendiente: calibración de potencia por tipo de disparo
+
+Detectado al cerrar §16.15. **No implementado todavía**; queda documentado para
+no perder el contexto.
+
+> **Actualización 2026-10-29 (v0.1.4).** §16.17 sustituyó los arrays globales
+> por cubos por móvil, así que la parte de "gravedad por móvil" ya está hecha.
+> El tipo de bala **sigue sin separarse**: la clave del cubo es solo el móvil y
+> `pendingShots` tampoco compara `selectedShot`. La propuesta técnica de abajo
+> se mantiene, pero la clave pasa a ser `móvil|bala` sobre el `Map` existente.
+
+#### Síntoma funcional
+
+La `POTENCIA NECESARIA` y la trayectoria se desvían según la bala elegida. En la
+sesión live el perfil quedó en `powerScale=2.2919`, `gravity=386` (8 muestras),
+mientras que los fixtures de la misma móvil daban `2.3641` / `402`: un **3–4 %**
+de diferencia en `v0`. A 800–1200 unidades de alcance son decenas de píxeles, y
+la marca de potencia queda corta o larga de forma sistemática.
+
+La trayectoria dibujada y la marca son coherentes entre sí (ambas usan el mismo
+`powerScale`), así que el error no se ve en el overlay: se ve al disparar.
+
+#### Evidencia
+
+- Durante la sesión live, el arma seleccionada era la **segunda** bala:
+  `#btnShot2` tenía la clase `Pressed` (`#btnShot1` sin clase, `#btnShotSS`
+  con `grayscale`).
+- Todos los fixtures capturados tienen `selectedShot=0` (primera bala).
+- El cliente envía el tipo en `game_shoot` (campo 8, índice `s[7]`), pero la
+  calibración lo ignora.
+
+#### Causa técnica (estado actual del código)
+
+1. `AutoCalibration` separa por móvil (`buckets`), pero **no por tipo de
+   bala**: `observePlay` hace `powerScale = s[3] / shot.power` y escribe en el
+   cubo del móvil sin mirar `shot.selectedShot`.
+2. `getProfile(mobile)` solo separa por móvil; el perfil que consume
+   `content.js` es la mediana mezclada de todas las balas.
+3. La ruta sintética de disparo (`page-hook.js`, `onSyntheticShoot`, la que
+   reconstruye el `game_shoot` cuando el frame real no se captura) fija
+   **`selectedShot: 0`** de forma literal. Es la ruta habitual: en la captura
+   live cada `play` vino precedido de un `game-shoot` sintético
+   (`time: 0`, `selectedShot: 0`).
+4. `pendingShots` se empareja con `play` por `(x, y, look, antigüedad)`; no
+   compara `selectedShot`. Si conviven el sintético (0) y el real (2), el
+   `splice` se queda con el más reciente y el resultado depende del orden de
+   llegada.
+5. `page-hook.profile()` y el snapshot no publican el tipo de bala, así que el
+   panel tampoco puede avisar de qué perfil está usando.
+
+#### Propuesta funcional
+
+- El panel debe mostrar la bala activa y el perfil en uso:
+  `CALIBRADO S2 (5)` / `FALLBACK S1`.
+- La calibración se lleva **por (móvil, tipo de bala)**. Al cambiar de bala, la
+  potencia sugerida y la trayectoria se recalculan con su perfil, sin esperar a
+  un nuevo disparo.
+- Si una bala aún no tiene muestras suficientes, se usa la mediana global como
+  puente y, si tampoco hay, `DEFAULT_PROFILE`. El panel indica de dónde sale.
+- No mezclar muestras de tipos distintos: una bala con multiplicador propio
+  contamina la mediana de las demás.
+- Las balas sin efecto de potencia (si las hay) pueden compartir cubo, pero eso
+  se decide con datos, no por suposición.
+
+#### Propuesta técnica
+
+- `auto-calibration.js`
+  - `shotKey(mobile, selectedShot)` → `normalizeMobile(mobile) + '|' + slot`
+    (`slot = selectedShot == null ? 0 : selectedShot`).
+  - Sustituir los arrays por
+    `Map<string, { power: [], gravity: [] }>`; `observeGameShoot` guarda
+    `selectedShot` y `observePlay` escribe en el cubo del disparo emparejado.
+  - `getProfile(mobile, selectedShot)` devuelve mediana del cubo → mediana
+    global → `DEFAULT_PROFILE`, y añade `shotType` y `samples` al perfil.
+  - `minSamples` por cubo (p. ej. 3) antes de abandonar el *fallback*.
+  - `resetPhysics()` sigue limpiando todos los cubos en `room_state`.
+- `page-hook.js`
+  - `readSelectedShot()`: `#btnShot1.Pressed` → `0`, `#btnShot2.Pressed` → `1`,
+    `#btnShotSS.Pressed` → `'SS'`; si no hay clase reconocible, `null` y se
+    conserva el último valor visto en `game_shoot` (o `0`).
+  - La ruta sintética usa `readSelectedShot()` en vez del `0` literal.
+  - Publicar `selectedShot` en `profile()` y en el snapshot.
+- `content.js`
+  - Consumir el perfil del cubo activo y mostrar `S1/S2/SS` en la línea de
+    diagnóstico (`L0 · B-29° · R206° · θ154° · S2`).
+  - Recalcular al detectar cambio de bala (la clase `Pressed` viaja en el
+    snapshot), sin esperar a moverse.
+- Pruebas
+  - Fixtures nuevos con `selectedShot=1` (segunda bala) y dos cubos en la misma
+    instancia: cada uno debe dar su `powerScale` y no contaminarse.
+  - Test de que un `play` empareja con el `pendingShot` del mismo tipo.
+  - Test de cambio de bala: `Pressed` en `#btnShot2` → el snapshot publica
+    `S2` y el perfil cambia.
+  - Regresión: con menos de `minSamples` en el cubo, el resultado sigue siendo
+    válido (fallback) y no rompe los 41/41.
+
+#### Riesgos y bordes
+
+- Los IDs/clases (`btnShot1`, `btnShot2`, `btnShotSS`, `Pressed`, `grayscale`)
+  son del cliente actual; si cambian, `readSelectedShot()` debe degradar a
+  `null` sin romper (y el panel mostrar `S?`).
+- `SS` deshabilitada (`grayscale`) no debe contar como selección.
+- Payloads viejos sin `selectedShot` → cubo `0`.
+- Cambio de bala durante la carga: manda el tipo en el instante del disparo; la
+  ruta sintética lo lee en el `pointerup`, que es cuando se envía.
+- El origen calibrado (`calibrateOrigin`) no depende de la bala, pero si algún
+  día se activa conviene conservarlo por móvil, no por bala.
+
+#### Criterio de aceptación
+
+Con 5 disparos por bala al mismo destino: `powerScale` de cada cubo estable
+(desviación < 1 %), la potencia sugerida acierta en ambos y el panel indica la
+bala y el número de muestras. Sin regresiones en 20/20 y 41/41.
+
+### 16.17 Calibración por móvil: soporte de Boomer (2026-10-29, v0.1.4)
+
+#### Síntoma funcional
+
+Con Armor la v0.1.3 era estable (aire 0), pero al cambiar a **Boomer** los
+disparos se quedaban cortos: la gravedad del mundo es **por móvil** y la
+calibración la promediaba entre todos. La tabla del cliente
+(`script.js:22-110`, ver `analisis-aimbot-dragonbound.md` §3.2) da
+`a = 75` para Armor y `a = 62,5` para Boomer: un **17 % menos** de gravedad.
+Usar la gravedad de Armor para Boomer desplaza el punto de caída cientos de
+unidades a larga distancia.
+
+Además, el primer disparo de un móvil nuevo usaba el respaldo `390` (Armor),
+no una estimación de su propia gravedad, y la escala de potencia arrancaba en
+`2.269` aunque ya hubiera muestras válidas de la sesión.
+
+#### Tabla usada (coeficiente `a`)
+
+| Móvil | a | Móvil | a | Móvil | a |
+|---|---|---|---|---|---|
+| armor | 75 | ice | 63,5 | aduka | 60,5 |
+| lightning | 65 | bigfoot | 90 | jd | 63,5 |
+| asate | 75,5 | random | 81 | knight | 65,5 |
+| fox | 61 | dragon | 95 | dragon2 | 120 |
+| nak | 79,5 | trico | 84 | mage | 71,5 |
+| turtle | 74,5 | **boomer** | **62,5** | electrico | 73,5 |
+| frog | 65,5 | kalsiddon | 65,5 | grub | 63,5 |
+
+La gravedad del mundo es `g = a · unidad`. La `unidad` se aprende de
+`play.s[5] / a` de cualquier móvil observado; sin observaciones se usa la de
+respaldo `390 / 75 = 5,2`. Ejemplos:
+
+- Armor observada en `402` → unidad `5,36` → **Boomer predice `335`**
+  (`5,36 · 62,5`).
+- Sesión nueva, sin muestras → Boomer predice `325` (`5,2 · 62,5`), mejor que
+  el `390` de Armor.
+
+#### Implementación
+
+- `auto-calibration.js`
+  - `MOBILE_A` con los 21 coeficientes y `mobileKey()`, que quita ruta y
+    extensión y normaliza el sufijo `2D`
+    (`/static/images/mobiles/Boomer2D.png` → `boomer`; `Dragon22D.png` →
+    `dragon2`).
+  - `buckets: Map<móvil, { power: [], gravity: [] }>` con ventana de 8. Se
+    eliminaron los arrays globales de física.
+  - `observePlay` escribe en el cubo del disparo emparejado (no en uno global) y
+    añade `s[5] / a` a `gravityUnits` cuando el viento horizontal es 0.
+  - `getProfile(mobile)`: mediana del cubo propio → gravedad **predicha** por
+    tabla/unidad → `DEFAULT_PROFILE`; potencia del cubo propio → mediana global
+    → `DEFAULT_PROFILE`. Publica `mobile`, `gravitySource`
+    (`observed` / `predicted` / `default`), `samples` del cubo y
+    `originMeasured` (origen medido, se aplica solo con `calibrateOrigin`).
+  - `resetPhysics()` limpia cubos, potencia global y unidades (la sala puede
+    cambiar las constantes); conserva los orígenes por móvil, que no dependen
+    de la sala.
+- `page-hook.js` no necesitó cambios: ya pasa `mobileNameOf(me)` a
+  `getProfile` y a `originFor`, y ahora la clave se normaliza dentro del módulo.
+- `content.js` consume `snap.profile`; la trayectoria, la potencia sugerida y
+  la marca usan la gravedad del móvil activo. El panel muestra
+  `CALIBRADO (n)` con muestras propias del móvil, `PREDICHO` si solo hay
+  predicción por tabla y `FALLBACK` si no hay datos.
+- `manifest.json` sube a **0.1.4** (recargar la extensión descomprimida).
+
+#### Pruebas
+
+- Auto-calibración **20/20** (antes 14/14). Casos nuevos:
+  - `mobileKey` normaliza ruta, extensión y sufijo `2D`.
+  - Boomer predice `402/75·62,5` tras una muestra de Armor y hereda la potencia
+    global sin mezclar `samples`.
+  - Boomer sin ninguna observación predice `390/75·62,5 = 325`.
+  - Un móvil sin tabla cae al perfil por defecto (`390` / `2.269`).
+  - Cubos separados: Armor conserva `402` / `2.3641` y Boomer `335` / `2.29`.
+  - El origen se mide en cada disparo (`originMeasured`) pero no se aplica si
+    `calibrateOrigin` está desactivado.
+- Integración **41/41** sin regresiones.
+
+#### Límites y pendientes
+
+- **Origen de Boomer**: `calibrateOrigin` sigue desactivado y el offset por
+  defecto es el de Armor `(20,45, 25,83)`. El cañón de Boomer puede quedar unos
+  píxeles desplazado. Cada disparo deja la medición en
+  `profile.originMeasured` (`a`, `c`, `samples`), así que tras 3–5 tiros live se
+  puede fijar el valor de Boomer sin activar la aplicación automática.
+- **Tipo de bala**: los cubos son por móvil, no por `S1/S2/SS`; sigue vigente
+  §16.16. Con Boomer y la segunda bala, la potencia puede desviarse ~3–4 %.
+- **Viento**: con `AIRE = 0` el factor `b` no interviene. Si se habilita el
+  viento, `b` también es por móvil (Boomer `1,39`, el mayor del juego) y habrá
+  que calibrarlo por móvil, no con una constante global.
+- **Validación live**: falta confirmar con el cliente real que Boomer cae en
+  `~335` y que el origen no necesita corrección. Criterio: 5 disparos al mismo
+  destino, `powerScale` estable < 1 % y error de caída dentro del marcador.
+
+#### Criterio de aceptación
+
+Boomer debe usar su propia gravedad desde el primer disparo (predicha) y
+afinarla con `play.s[5]` en los siguientes; el panel y el perfil deben indicar
+de dónde sale el valor (`observed` / `predicted` / `default`), sin regresiones
+en 20/20 y 41/41.
+
+
 ---
 
 ## Anexo A — Referencias de código (runtime del juego)

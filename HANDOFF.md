@@ -10,7 +10,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 14/14 y 41/41; validación live en curso (v0.1.3). |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 20/20 y 41/41; calibración por móvil para Boomer (v0.1.4), validación live pendiente. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
@@ -111,10 +111,30 @@ out/            build (ignorado por git)
    `look=1 → real = raw`); ver §13 de la sesión y §16.15 del diseño. **Confirmado
    en vivo con 8 disparos**: el mensaje `play` publica `truth`/`raw` del mismo
    instante y el residuo fue 0° en ambos lados (look=0: 231→129, 235→125,
-   230→130, 206→154; look=1: 50→50, 63→63). Pendiente menor: revisar si la
-   calibración de potencia debe separar por `selectedShot` (con 8 muestras el
-   perfil quedó en 2.2919/386 frente a 2.3641/402 de los fixtures).
-3. Afinar detección con frames reales del juego (si se usa el plan B de visión).
+   230→130, 206→154; look=1: 50→50, 63→63).
+3. **(Detallado, no implementado) Calibración de potencia por tipo de bala** —
+   ver §16.16 del diseño. En la sesión live se disparó con la **segunda bala**
+   (`#btnShot2.Pressed`) mientras los fixtures son de la primera
+   (`selectedShot=0`); el perfil quedó en `2.2919/386` frente a `2.3641/402`
+   (~3–4 % en `v0`, decenas de píxeles de error). Causa: la calibración no
+   separa por `selectedShot` (desde v0.1.4 los cubos son por móvil, no por
+   bala); además la ruta sintética del hook fija `selectedShot: 0` y
+   `pendingShots` no compara el tipo al emparejar con `play`. Propuesta: cubos
+   por `(móvil, bala)` con fallback, `readSelectedShot()` desde
+   `#btnShot1/#btnShot2/#btnShotSS` (`Pressed`), y mostrar `S1/S2/SS` en el
+   panel. Criterio: 5 tiros por bala, `powerScale` estable < 1 % y sin
+   regresiones 20/20 + 41/41.
+4. **(Implementado v0.1.4, validación live pendiente) Calibración por móvil:
+   Boomer.** La gravedad es por móvil (`a`: Armor 75, Boomer 62,5, Dragon2 120);
+   antes se promediaba entre móviles y Boomer heredaba la de Armor (17 % de más).
+   Ahora `AutoCalibration` guarda cubos `Map<móvil, {power, gravity}>`, normaliza
+   la clave con `mobileKey()` y **predice** la gravedad de un móvil sin muestras
+   con `unidad = s[5]/a` (Armor 402 → unidad 5,36 → Boomer 335; sin datos,
+   `390/75·62,5 = 325`). La potencia hereda la mediana global como respaldo.
+   Detalle en §16.17 del diseño. Falta: confirmar en vivo que Boomer cae en
+   ~335 con 5 disparos y ajustar el **origen** de Boomer (hoy usa el de Armor).
+   Criterio: `powerScale` estable < 1 %, sin regresiones 20/20 + 41/41.
+5. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---
 

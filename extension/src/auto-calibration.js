@@ -57,8 +57,56 @@
       : (sorted[mid - 1] + sorted[mid]) / 2;
   }
 
+  // Coeficiente `a` (gravedad relativa) de cada móvil, según la tabla del
+  // cliente. La gravedad del mundo es `a · unidad`; la unidad se aprende de
+  // `play.s[5]` y la del respaldo sale de Armor (390 / 75 = 5,2).
+  const MOBILE_A = Object.freeze({
+    armor: 75,
+    ice: 63.5,
+    aduka: 60.5,
+    lightning: 65,
+    bigfoot: 90,
+    jd: 63.5,
+    asate: 75.5,
+    random: 81,
+    knight: 65.5,
+    fox: 61,
+    dragon: 95,
+    dragon2: 120,
+    nak: 79.5,
+    trico: 84,
+    mage: 71.5,
+    turtle: 74.5,
+    boomer: 62.5,
+    electrico: 73.5,
+    frog: 65.5,
+    kalsiddon: 65.5,
+    grub: 63.5,
+  });
+  const ARMOR_A = MOBILE_A.armor;
+  const DEFAULT_GRAVITY_UNIT = DEFAULT_PROFILE.gravity / ARMOR_A;
+
+  /**
+   * Clave estable por móvil: quita ruta y extensión y normaliza el sufijo
+   * `2D` del cliente (`/static/images/mobiles/Armor2D.png` -> `armor`).
+   * Si el sufijo forma parte del nombre (`Dragon22D.png` -> `dragon2`) se
+   * conserva porque la clave existe en la tabla.
+   */
+  function mobileKey(mobile) {
+    const raw = mobile ? String(mobile) : '';
+    const base = raw.split(/[\\/]/).pop()
+      .replace(/\.(png|jpe?g|webp|gif)$/i, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+    if (!base) return 'unknown';
+    if (MOBILE_A[base]) return base;
+    const alt = base.replace(/2d$/, '');
+    if (MOBILE_A[alt]) return alt;
+    return base;
+  }
+
   function normalizeMobile(mobile) {
-    return mobile ? String(mobile) : 'unknown';
+    return mobileKey(mobile);
   }
 
   /**
@@ -241,8 +289,16 @@
       this.onChange = this.options.onChange || null;
 
       this.pendingShots = [];
+      // Muestras por móvil: la gravedad y el origen cambian con el móvil, así
+      // que no se pueden mezclar en un array global. La potencia se separa por
+      // móvil y se comparte como respaldo (no parece depender del móvil).
+      this.buckets = new Map();
+      // Potencia global (todos los móviles): sirve de respaldo cuando el móvil
+      // todavía no tiene muestras propias.
       this.powerSamples = [];
-      this.gravitySamples = [];
+      // Unidades de gravedad observadas (`s[5] / a` del móvil). Sirven para
+      // predecir la gravedad de un móvil que aún no ha disparado.
+      this.gravityUnits = [];
       this.origins = new Map();
       this.last = null;
     }
@@ -318,31 +374,42 @@
         return { matched: true, calibrated: false, shot: shot, reason: 'power-scale-fuera-de-rango', s: s };
       }
 
+      const bucket = this.bucketFor(shot.mobile);
+      bucket.power.push(powerScale);
+      if (bucket.power.length > this.options.windowSize) bucket.power.shift();
       this.powerSamples.push(powerScale);
       if (this.powerSamples.length > this.options.windowSize) this.powerSamples.shift();
 
       let gravityUpdated = false;
       if (vertAccel !== null && vertAccel > 0 &&
           (!this.options.gravityRequiresZeroWind || windX === 0)) {
-        this.gravitySamples.push(vertAccel);
-        if (this.gravitySamples.length > this.options.windowSize) this.gravitySamples.shift();
+        bucket.gravity.push(vertAccel);
+        if (bucket.gravity.length > this.options.windowSize) bucket.gravity.shift();
+        const a = MOBILE_A[mobileKey(shot.mobile)];
+        if (a) {
+          this.gravityUnits.push(vertAccel / a);
+          if (this.gravityUnits.length > this.options.windowSize) {
+            this.gravityUnits.shift();
+          }
+        }
         gravityUpdated = true;
       }
 
-      let origin = null;
+      // El origen se mide siempre (es barato y no cambia el resultado), pero
+      // solo se aplica si `calibrateOrigin` está activo. Así se puede leer el
+      // valor real de un móvil nuevo (p. ej. Boomer) sin arriesgar el ajuste
+      // fino que ya funciona.
+      let origin = solveOrigin(shot, s);
       let originUpdated = false;
-      if (this.options.calibrateOrigin) {
-        origin = solveOrigin(shot, s);
-        if (origin) {
-          const mobile = normalizeMobile(shot.mobile);
-          const bucket = this.origins.get(mobile) || { a: [], c: [] };
-          bucket.a.push(origin.a);
-          bucket.c.push(origin.c);
-          if (bucket.a.length > this.options.windowSize) bucket.a.shift();
-          if (bucket.c.length > this.options.windowSize) bucket.c.shift();
-          this.origins.set(mobile, bucket);
-          originUpdated = true;
-        }
+      if (origin) {
+        const mobile = normalizeMobile(shot.mobile);
+        const bucket = this.origins.get(mobile) || { a: [], c: [] };
+        bucket.a.push(origin.a);
+        bucket.c.push(origin.c);
+        if (bucket.a.length > this.options.windowSize) bucket.a.shift();
+        if (bucket.c.length > this.options.windowSize) bucket.c.shift();
+        this.origins.set(mobile, bucket);
+        originUpdated = true;
       }
 
       const delta = {
@@ -362,6 +429,30 @@
       return { matched: true, calibrated: true, shot: shot, entry: entry, delta: delta, profile: profile };
     }
 
+    bucketFor(mobile) {
+      const key = normalizeMobile(mobile);
+      let bucket = this.buckets.get(key);
+      if (!bucket) {
+        bucket = { power: [], gravity: [] };
+        this.buckets.set(key, bucket);
+      }
+      return bucket;
+    }
+
+    /**
+     * Gravedad esperada de un móvil sin muestras propias, a partir de la
+     * unidad observada (`s[5] / a`) o de la de respaldo. Devuelve null solo si
+     * el móvil no está en la tabla.
+     */
+    predictGravity(mobile) {
+      const a = MOBILE_A[mobileKey(mobile)];
+      if (!a) return null;
+      // Sin observaciones se usa la unidad de respaldo (Armor 390 / a=75), que
+      // ya aproxima la gravedad real mejor que dejar la de Armor para todos.
+      const unit = median(this.gravityUnits);
+      return (unit === null ? DEFAULT_GRAVITY_UNIT : unit) * a;
+    }
+
     getOrigin(mobile) {
       const bucket = this.origins.get(normalizeMobile(mobile));
       if (!bucket || bucket.a.length === 0) return null;
@@ -374,25 +465,40 @@
 
     getProfile(mobile) {
       const key = normalizeMobile(mobile || (this.last && this.last.shot.mobile) || 'Armor2D.png');
-      const powerScale = median(this.powerSamples);
-      const gravity = median(this.gravitySamples);
-      const calibratedOrigin = this.getOrigin(key);
+      const bucket = this.buckets.get(key) || { power: [], gravity: [] };
+      const ownPower = median(bucket.power);
+      const powerScale = ownPower === null ? median(this.powerSamples) : ownPower;
+      const observedGravity = median(bucket.gravity);
+      const predictedGravity = observedGravity === null ? this.predictGravity(key) : null;
+      const gravity = observedGravity !== null ? observedGravity
+        : (predictedGravity !== null ? predictedGravity : DEFAULT_PROFILE.gravity);
+      const gravitySource = observedGravity !== null ? 'observed'
+        : (predictedGravity !== null ? 'predicted' : 'default');
+      const measuredOrigin = this.getOrigin(key);
+      const calibratedOrigin = this.options.calibrateOrigin ? measuredOrigin : null;
       const origin = calibratedOrigin || {
         a: DEFAULT_PROFILE.origin.a,
         c: DEFAULT_PROFILE.origin.c,
       };
 
       return {
+        mobile: key,
         powerScale: powerScale === null ? DEFAULT_PROFILE.powerScale : powerScale,
-        gravity: gravity === null ? DEFAULT_PROFILE.gravity : gravity,
+        gravity: gravity,
+        gravitySource: gravitySource,
         origin: { a: origin.a, c: origin.c },
         offsetAtBody0: { x: origin.a, y: -origin.c },
-        source: powerScale === null ? 'fallback' : 'observed',
+        source: ownPower === null ? 'fallback' : 'observed',
         originCalibrated: !!calibratedOrigin,
+        originMeasured: measuredOrigin ? {
+          a: measuredOrigin.a,
+          c: measuredOrigin.c,
+          samples: measuredOrigin.samples,
+        } : null,
         samples: {
-          power: this.powerSamples.length,
-          gravity: this.gravitySamples.length,
-          origin: calibratedOrigin ? calibratedOrigin.samples : 0,
+          power: bucket.power.length,
+          gravity: bucket.gravity.length,
+          origin: measuredOrigin ? measuredOrigin.samples : 0,
         },
         pending: this.pendingShots.length,
       };
@@ -431,8 +537,9 @@
      */
     resetPhysics() {
       this.pendingShots = [];
+      this.buckets.clear();
       this.powerSamples = [];
-      this.gravitySamples = [];
+      this.gravityUnits = [];
       this.last = null;
     }
 
@@ -450,6 +557,8 @@
     parsePlay: parsePlay,
     median: median,
     splitTopLevel: splitTopLevel,
+    MOBILE_A: MOBILE_A,
+    mobileKey: mobileKey,
   };
 
   root.DragonShotAutoCalibration = api;

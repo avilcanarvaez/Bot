@@ -109,7 +109,8 @@ descifrados:
 
 - `game_shoot` → `observeGameShoot(raw, { mobile })`
 - `play` → `observePlay(raw)`
-- perfil vigente → `getProfile(mobile)`
+- perfil vigente → `getProfile(mobile)` (la clave del móvil se normaliza con
+  `mobileKey`: `/static/images/mobiles/Boomer2D.png` → `boomer`)
 - origen del cañón → `originFor(player, body, look, mobile)`
 - cambio de sala/reconexión → `resetPhysics()`
 - reset total (incluidos orígenes por móvil) → `reset()`
@@ -121,12 +122,27 @@ Reglas:
 - `gravity = play[15][0].s[5]` solo si `s[4] === 0` (sin viento horizontal).
   `s[5]` es la aceleración vertical efectiva; si hubiera viento vertical, se
   acepta como gravedad efectiva de la sala.
-- Usa la mediana de las últimas 8 muestras.
+- Usa la mediana de las últimas 8 muestras **por móvil**: la gravedad y el
+  origen cambian con el móvil, así que no se mezclan entre sí.
+- `gravity` de un móvil sin muestras se **predice** con la tabla de
+  coeficientes `a` del cliente y la unidad observada
+  (`unidad = s[5] / a`; respaldo `390 / 75 = 5,2`). Ejemplo: si Armor observa
+  `402`, la unidad es `5,36` y Boomer (`a = 62,5`) predice `335`.
+- La escala de potencia sí se comparte entre móviles como respaldo: si el móvil
+  activo aún no tiene muestras, se usa la mediana global; si tampoco hay,
+  `DEFAULT_PROFILE`.
 - Fallback inicial: `powerScale = 2.269`, `gravity = 390`, origen Armor
   `(a=20.45, c=25.83)`.
 - No actualiza `gravity` con `play` de otros jugadores.
 - La calibración del origen es opcional (`calibrateOrigin: true`) porque
-  `play.s[0]/s[1]` llega redondeado a píxel.
+  `play.s[0]/s[1]` llega redondeado a píxel. Hoy está desactivada: el origen de
+  Boomer usa el de Armor hasta que se ajuste con datos live. Aun así el origen
+  se **mide** en cada disparo y se publica como `originMeasured`, para poder
+  ajustar la tabla sin activar la aplicación automática.
+- El perfil publica `mobile`, `gravitySource` (`observed` / `predicted` /
+  `default`), `samples` del cubo activo y `originMeasured` (mediana del origen
+  medida, aunque no se aplique). El panel muestra `CALIBRADO (n)`, `PREDICHO` o
+  `FALLBACK` según de dónde salga la gravedad del móvil activo.
 
 ## Pruebas
 
@@ -139,7 +155,7 @@ test/fixtures/captured-shots.js
 test/auto-calibration.test.js
 ```
 
-El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **14/14**.
+El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **20/20**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
 en **41/41**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
@@ -153,7 +169,12 @@ no contienen el token de sesión.
 
 - El hook de WebSocket es page-level: no cubre WebSockets creados dentro de
   Workers o iframes.
-- Solo Armor tiene origen calibrado; los demás móviles usan el fallback.
+- Solo Armor tiene un origen ajustado (valor por defecto); los demás móviles
+  usan ese mismo offset (incluido Boomer: su cañón puede quedar unos píxeles
+  desplazado hasta calibrarlo en vivo).
+- La calibración de potencia por **tipo de bala** sigue pendiente (§16.16 del
+  diseño): los cubos son por móvil, no por `S1/S2/SS`. Si se cambia de bala, la
+  escala puede variar ~3–4 %.
 - La colisión con terreno no se simula: la trayectoria se corta por viewport.
 - La marca de potencia es visual; no se automatiza el disparo. Se dibuja sobre
   `#powerMarkArea`/`#powerMarks` (ancho 0..400) con contorno y aguja para que se

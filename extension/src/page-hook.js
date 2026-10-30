@@ -1180,9 +1180,12 @@
   // Debug acotado para pruebas manuales. No incluye frames ni tokens.
   window.__DS_EXT_HOOK__ = {
     snapshot: snapshot,
-    profile: function () {
+    profile: function (mobile) {
       const cal = getCalibration();
-      return cal ? cal.getProfile() : null;
+      if (!cal) return null;
+      if (mobile) return cal.getProfile(mobile);
+      const me = getMe();
+      return cal.getProfile(me ? mobileNameOf(me) : undefined);
     },
     reset: function () {
       const cal = getCalibration();

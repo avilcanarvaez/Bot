@@ -631,3 +631,67 @@ Con `look=1` no hay espejo y `real = raw`. Confirmado con:
   `look=0` → 231→129, 235→125, 230→130, 206→154;
   `look=1` → 50→50, 63→63. La corrección `look=0 → −raw`, `look=1 → raw`
   coincide con el servidor en ambos lados.
+
+### Pendiente detectado al cerrar
+
+La calibración de potencia mezcla tipos de bala: en esta sesión se disparó con
+`#btnShot2.Pressed` y el perfil quedó en `2.2919/386` (8 muestras), frente a
+`2.3641/402` de los fixtures (`selectedShot=0`). Detalle funcional y técnico en
+**§16.16** del diseño; resumen en `HANDOFF.md` §5.3. No implementado.
+
+---
+
+## 14. Soporte de Boomer: calibración por móvil (2026-10-29, v0.1.4)
+
+### Pedido
+
+La v0.1.3 era estable con Armor y `AIRE = 0`. Al pasar al móvil **Boomer** los
+disparos se quedaban cortos: hacía falta perfeccionar el tiro, la trayectoria y
+el cálculo para ese móvil.
+
+### Causa
+
+La gravedad del juego es **por móvil** (tabla del cliente: `a = 75` en Armor,
+`a = 62,5` en Boomer). `AutoCalibration` guardaba `powerSamples` y
+`gravitySamples` globales, así que Boomer heredaba la gravedad de Armor
+(`402`) en vez de la suya (`~335`): un 17 % de más, que a larga distancia son
+cientos de unidades de error. El primer disparo de un móvil nuevo, además,
+usaba el respaldo `390` sin intentar predecir su gravedad.
+
+### Cambios
+
+- `MOBILE_A` (21 móviles) y `mobileKey()` en `auto-calibration.js`;
+  `/static/images/mobiles/Boomer2D.png` → `boomer`.
+- Cubos por móvil `Map<móvil, {power, gravity}>` con ventana de 8; se eliminaron
+  los arrays globales.
+- `gravityUnits = s[5] / a` permite **predecir** la gravedad de un móvil sin
+  muestras: Armor `402` → unidad `5,36` → Boomer `335`; sin observaciones,
+  `390/75·62,5 = 325`.
+- La potencia usa el cubo propio; si está vacío, la mediana global (la escala es
+  del disparo, no del móvil); si tampoco, `DEFAULT_PROFILE`.
+- El perfil publica `mobile`, `gravitySource`, `samples` del cubo activo y
+  `originMeasured` (el origen se mide siempre, pero solo se aplica con
+  `calibrateOrigin`). El panel muestra `CALIBRADO (n)`, `PREDICHO` o `FALLBACK`.
+- `__DS_EXT_HOOK__.profile()` usa el móvil del jugador actual (antes caía al
+  último disparo o a Armor).
+- `resetPhysics()` limpia cubos/unidades (la sala puede cambiar constantes) y
+  conserva orígenes.
+- `manifest.json` → **0.1.4**. `page-hook.js` y `content.js` no necesitaron
+  cambios: ya pasan el móvil y consumen `snap.profile`.
+
+### Pruebas
+
+- Auto-calibración **20/20** (nuevas: `mobileKey`, predicción de Boomer con y
+  sin muestras, herencia de potencia global, cubos separados, móvil sin tabla y
+  origen medido sin aplicar).
+- Integración **41/41** sin regresiones.
+- Ejecutadas en Brave headless por CDP (puerto 9223) contra las páginas
+  `test/auto-calibration.test.html` y `test/integration.test.html`.
+
+### Pendiente
+
+- Validar Boomer contra el cliente real (5 disparos al mismo destino) y ajustar
+  su **origen**, que hoy usa el de Armor.
+- La calibración por tipo de bala sigue pendiente (§16.16); los cubos son por
+  móvil, no por `S1/S2/SS`.
+- Si se habilita el viento, `b` también es por móvil (Boomer `1,39`).

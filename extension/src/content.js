@@ -497,7 +497,14 @@
     setText(els.origin, 'CAÑÓN');
     setText(els.angle, angAbs == null ? '—' : Math.round(angAbs) + '°');
     const samples = profile.samples && profile.samples.power;
-    setText(els.cal, samples ? 'CALIBRADO (' + samples + ')' : 'FALLBACK');
+    const calSource = profile.gravitySource || 'default';
+    setText(els.cal, samples ? 'CALIBRADO (' + samples + ')'
+      : (calSource === 'predicted' ? 'PREDICHO' : 'FALLBACK'));
+    if (els.cal) {
+      els.cal.title = 'móvil ' + (profile.mobile || '?') +
+        ' · g ' + (Math.round(profile.gravity * 10) / 10) +
+        ' · ' + calSource;
+    }
     updateDiag();
 
     const originClient = worldToClient(origin, snap);
