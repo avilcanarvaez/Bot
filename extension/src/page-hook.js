@@ -51,6 +51,19 @@
   } catch (error) {
     window.__DS_WIND_LOG__ = windLog;
   }
+  // Registro completo de disparos propios (cada `play` emparejado), con el
+  // `s=[x0,y0,ang,v0,windX,vertAccel]` real del servidor. Sirve para calibrar
+  // gravedad/viento/origen/powerScale de un móvil en vivo. Se expone como
+  // `window.__DS_SHOT_LOG__` (sin token de sesión ni datos del rival).
+  const shotLog = [];
+  try {
+    Object.defineProperty(window, '__DS_SHOT_LOG__', {
+      get: function () { return shotLog; },
+      configurable: true,
+    });
+  } catch (error) {
+    window.__DS_SHOT_LOG__ = shotLog;
+  }
 
   function getApi() {
     return window.DragonShotAutoCalibration || null;
@@ -329,6 +342,23 @@
         signY: result.delta.windSignY,
       });
       if (windLog.length > 200) windLog.shift();
+    }
+    // Registro completo del disparo (sirve para calibrar gravedad, viento,
+    // origen y powerScale de un móvil en vivo).
+    if (result.matched && result.delta && result.shot) {
+      shotLog.push({
+        t: Date.now(),
+        mobile: mobileNameOf(me) || 'unknown',
+        x: result.shot.x,
+        y: result.shot.y,
+        body: result.shot.body,
+        look: result.shot.look,
+        ang: result.shot.ang,
+        power: result.shot.power,
+        s: result.delta.s,
+        wind: result.delta.wind || null,
+      });
+      if (shotLog.length > 200) shotLog.shift();
     }
     post('play', {
       matched: !!result.matched,
