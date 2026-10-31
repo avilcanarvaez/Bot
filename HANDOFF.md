@@ -10,11 +10,13 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 30/30 y 56/56; calibración por móvil, cobertura de los 21 móviles y origen por móvil con tabla `aim` + auto-calibración (v0.1.7), validación live pendiente. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 37/37 y 64/64; calibración por móvil, cobertura de los 21 móviles, origen por móvil con tabla `aim` + auto-calibración (v0.1.7) y **viento por móvil** (v0.2.0), validación live pendiente. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
-Invariante del proyecto: **`AIRE = 0`** en todos los cálculos.
+Invariante de la **app Java de escritorio**: **`AIRE = 0`**. La **extensión web
+v0.2.0** ya aplica el viento (`wind_power`/`wind_angle`) con el factor `b` por
+móvil; no se mezclan las constantes de ambos modelos.
 
 ---
 
@@ -148,7 +150,16 @@ out/            build (ignorado por git)
    publica `originSource` (`measured` / `tuned` / `predicted` / `default`) y
    `originMeasured` (`mad`, `stable`). Detalle en §16.19 del diseño. Falta:
    validar en vivo Boomer y el resto, sobre todo Aduka/NAK (`adukafix`).
-6. Afinar detección con frames reales del juego (si se usa el plan B de visión).
+6. **(Implementado v0.2.0, validación live pendiente) Viento por móvil.**
+   `play[13]/[14]` publican `wind_power` y `wind_angle+180` del siguiente turno;
+   el hook los guarda con el `game_shoot` y los aplica a `solvePower` y
+   `drawTrajectory`. `MOBILE_B` cubre los 21 móviles (Armor 0,76, Boomer 1,39,
+   Fox 0,61, Dragon2 0,74). La unidad de viento se aprende de `s[4]` (por
+   defecto 5,36) y los signos del primer tiro con viento; la gravedad base no se
+   contamina con `s[5]` si hubo viento. Panel `VIENTO` y `data-wind-*`.
+   Pruebas **37/37** y **64/64**. Detalle en §7.5/§16.20. Falta: validar en vivo
+   con viento real en Armor/Boomer/Fox/Dragon2 y un ángulo vertical.
+7. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 
 ---
 
@@ -204,7 +215,9 @@ Mantén OneDrive como copia automática y Git como historial/remoto. Lo importan
 
 ## 7. Convenciones y avisos
 
-- **`AIRE = 0` es invariante.** No introducir arrastre/viento sin cambiar el diseño.
+- **`AIRE = 0` es invariante solo en la app Java de escritorio.** La extensión
+  web v0.2.0 aplica el viento del servidor; no mezclar sus constantes con las
+  del remake/Java.
 - No borrar controles existentes sin justificar.
 - No declarar que "funciona en producción" sin completar §16.
 - El repo git local **ya está inicializado** (rama `main`, commit `2453912`).
@@ -217,4 +230,7 @@ Mantén OneDrive como copia automática y Git como historial/remoto. Lo importan
 
 1. En la otra PC: `test.cmd` (confirmar 39 tests).
 2. Conseguir acceso a `dragonbound.net` (o un HAR) y ejecutar §16.3.
-3. Con el perfil confirmado, empezar la **Fase 0–1** de la extensión.
+3. Validar en vivo el **viento** de la extensión (v0.2.0): un turno con viento
+   conocido, comprobar `profile.wind`/`data-wind-*` y que la potencia y la
+   trayectoria cambien en la dirección correcta; después probar Boomer/Fox.
+4. Con el perfil confirmado, empezar la **Fase 0–1** de la extensión.

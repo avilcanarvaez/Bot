@@ -4,9 +4,10 @@ Extensión MV3 para Chrome/Brave. Dibuja un overlay sobre DragonBound con:
 
 - origen en el cañón del jugador propio,
 - destino elegido con el botón **Seleccionar destino** o con **Ctrl + clic**,
-- trayectoria solución con el ángulo actual,
+- trayectoria solución con el ángulo actual y el **viento del turno**,
 - potencia necesaria marcada sobre la barra de poder,
-- auto-calibración de `powerScale`/`gravity` a partir de disparos propios.
+- auto-calibración de `powerScale`/`gravity` y de la **unidad de viento** a
+  partir de disparos propios.
 
 La extensión **no dispara**, no modifica `#powerBar` y no envía paquetes. Solo
 observa la red y Pixi para dibujar.
@@ -50,6 +51,8 @@ El panel muestra:
 - `ÁNGULO`: ángulo absoluto de salida (0° = derecha, 90° = arriba, 135° =
   arriba-izquierda), leído de `angle.worldTransform` y convertido según el lado
   real del móvil (`look=0` invierte el eje vertical).
+- `VIENTO`: número `wind_power` del turno y dirección (`←`/`→`, `↑`/`↓`). El
+  viento afecta a la trayectoria y a la potencia necesaria.
 - `CALIBRACIÓN`: `FALLBACK` o `CALIBRADO (n)` con el número de muestras.
 - Línea de diagnóstico pequeña (`L0 · B-17° · R72° · θ72° · e0°`): lado, cuerpo,
   rotación cruda de Pixi, ángulo leído y error del último disparo real. Sirve
@@ -119,9 +122,10 @@ Reglas:
 
 - Empareja el `play` con un disparo propio pendiente por `x`, `y` y `look`.
 - `powerScale = play[15][0].s[3] / game_shoot.power`.
-- `gravity = play[15][0].s[5]` solo si `s[4] === 0` (sin viento horizontal).
-  `s[5]` es la aceleración vertical efectiva; si hubiera viento vertical, se
-  acepta como gravedad efectiva de la sala.
+- `gravity = play[15][0].s[5]` solo si el disparo no tuvo viento
+  (`s[4] === 0` **y** `wind_power === 0`). `s[5]` es la aceleración vertical
+  efectiva; con viento incluye la componente vertical y no debe contaminar la
+  gravedad base.
 - Usa la mediana de las últimas 8 muestras **por móvil**: la gravedad y el
   origen cambian con el móvil, así que no se mezclan entre sí.
 - `gravity` de un móvil sin muestras se **predice** con la tabla de
@@ -148,13 +152,22 @@ Reglas:
   así una muestra sesgada no descalibra el cañón. Los móviles con origen ya ajustado (`TUNED_ORIGINS`, hoy
   Armor) conservan su valor y solo se miden. `calibrateOrigin: true` fuerza la
   medición desde la primera muestra; `false` solo mide.
+- **Viento por móvil**: el `play` publica `wind_power` (índice 13) y
+  `wind_angle + 180` (índice 14) del **siguiente** turno. El hook guarda ese
+  viento con el `game_shoot` y lo aplica a la trayectoria y a la potencia.
+  `AutoCalibration` usa el factor `b` de cada móvil (Armor 0,76, Boomer 1,39,
+  Fox 0,61, Dragon2 0,74; tabla de 21) y una unidad de viento aprendida de
+  `s[4]` (por defecto 5,36). La gravedad base se mantiene separada: `s[5]` de
+  un tiro con viento no se usa como gravedad. El panel muestra `VIENTO` con el
+  número y la dirección.
 - El perfil publica `mobile`, `gravitySource` (`observed` / `predicted` /
   `default`), `originSource` (`measured` / `tuned` / `predicted` / `default`),
-  `samples` del cubo activo, `originMeasured` (mediana, MAD, muestras y
-  estabilidad) y el `origin` aplicado. El panel muestra `CALIBRADO (n)`,
-  `PREDICHO` o `FALLBACK` según la gravedad, y el origen en el tooltip
-  (`origen medido (n)` / `origen fijo` / `origen predicho` / `origen por
-  defecto`) y en `data-origin-source`.
+  `wind` (`active`, `power`, `angle`, `b`, `unit`, `unitSource`, `windX`,
+  `vertAccel`, `signX`, `signY`), `samples` del cubo activo, `originMeasured`
+  (mediana, MAD, muestras y estabilidad) y el `origin` aplicado. El panel
+  muestra `CALIBRADO (n)`, `PREDICHO` o `FALLBACK` según la gravedad, y el
+  origen en el tooltip (`origen medido (n)` / `origen fijo` / `origen predicho` /
+  `origen por defecto`) y en `data-origin-source`; el viento en `data-wind-*`.
 
 ## Pruebas
 
@@ -167,15 +180,16 @@ test/fixtures/captured-shots.js
 test/auto-calibration.test.js
 ```
 
-El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **30/30**.
+El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **37/37**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **56/56**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+en **64/64**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
 clic`, trayectoria a izquierda y derecha, `look=0/1`, apuntado espejado que se
 alinea con el lado real (izquierda y derecha), marcador de potencia visible,
-reset por sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde
-el icono. Las fixtures usan payloads reales de la captura del 2026-10-20 y
-no contienen el token de sesión.
+viento en el perfil/panel con la potencia y la trayectoria afectadas, reset por
+sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde el icono.
+Las fixtures usan payloads reales de la captura del 2026-10-20 y no contienen el
+token de sesión.
 
 ## Limitaciones conocidas
 
@@ -189,6 +203,12 @@ no contienen el token de sesión.
 - La calibración de potencia por **tipo de bala** sigue pendiente (§16.16 del
   diseño): los cubos son por móvil, no por `S1/S2/SS`. Si se cambia de bala, la
   escala puede variar ~3–4 %.
+- **Viento**: la unidad se aprende de `s[4]` y arranca en 5,36; el primer tiro
+  con viento de una sala nueva puede desviarse ~1 %. La convención de signo se
+  calibró con la captura live (viento de ángulo ~2° → izquierda/arriba); si el
+  servidor cambia el signo, el primer tiro puede salir al revés y el aprendizaje
+  lo corrige en el siguiente. El viento vertical es pequeño en la captura y
+  falta validarlo con ángulos más verticales. La app Java conserva `AIRE = 0`.
 - El **origen** medido depende de que `play.s[0]/s[1]` llegue redondeado a
   píxel; la MAD descarta secuencias incoherentes, pero conviene validar cada
   móvil en vivo. Armor no se auto-sustituye para no degradar el ajuste actual.

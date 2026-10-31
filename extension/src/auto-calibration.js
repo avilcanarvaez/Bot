@@ -133,6 +133,37 @@
   const ARMOR_A = MOBILE_A.armor;
   const DEFAULT_GRAVITY_UNIT = DEFAULT_PROFILE.gravity / ARMOR_A;
 
+  // Factor de viento `b` por móvil (tabla del cliente, `script.js:22-110`).
+  // El servidor aplica `windX = componente · b · unidad`; la unidad se aprende
+  // de los disparos con viento y, mientras no haya muestras, se usa la escala
+  // observada en vivo (≈5,36). No confundir con `a` (gravedad).
+  const MOBILE_B = Object.freeze({
+    armor: 0.76,
+    ice: 0.625,
+    aduka: 0.7,
+    lightning: 0.72,
+    bigfoot: 0.74,
+    jd: 0.625,
+    asate: 0.765,
+    random: 0.827,
+    knight: 0.695,
+    fox: 0.61,
+    dragon: 0.74,
+    dragon2: 0.74,
+    nak: 0.875,
+    trico: 0.87,
+    mage: 0.78,
+    turtle: 0.75,
+    boomer: 1.39,
+    electrico: 0.74,
+    frog: 0.74,
+    kalsiddon: 0.74,
+    grub: 0.69,
+  });
+  const DEFAULT_WIND_UNIT = 5.36;
+  const MIN_WIND_UNIT = 1;
+  const MAX_WIND_UNIT = 20;
+
   /**
    * Clave estable por móvil: quita ruta y extensión y normaliza el sufijo
    * `2D` del cliente (`/static/images/mobiles/Armor2D.png` -> `armor`).
@@ -361,6 +392,13 @@
       // Unidades de gravedad observadas (`s[5] / a` del móvil). Sirven para
       // predecir la gravedad de un móvil que aún no ha disparado.
       this.gravityUnits = [];
+      // Viento del turno que se está jugando (lo publica el `play` anterior).
+      this.wind = null;
+      // Unidad de viento aprendida de `s[4]` (magnitud) y signo por eje. El
+      // signo absorbe la convención del ángulo que envía el servidor.
+      this.windUnits = [];
+      this.windSamplesX = [];
+      this.windSamplesY = [];
       this.origins = new Map();
       this.last = null;
     }
@@ -376,6 +414,15 @@
       }
       shot.mobile = normalizeMobile((meta && meta.mobile) || shot.mobile);
       shot.at = this.now();
+      // Viento que estaba activo cuando se disparó. Se guarda con el disparo
+      // pendiente porque el `play` que lo confirma trae el viento del
+      // **siguiente** turno, no el que actuó sobre este tiro.
+      const metaWind = meta && meta.wind;
+      const windPower = metaWind ? asNumber(metaWind.power) : null;
+      const windAngle = metaWind ? asNumber(metaWind.angle) : null;
+      shot.wind = windPower !== null && windAngle !== null
+        ? { power: Math.max(0, windPower), angle: windAngle }
+        : null;
       this.pendingShots.push(shot);
       if (this.pendingShots.length > this.options.windowSize) {
         this.pendingShots.shift();
@@ -443,8 +490,9 @@
       if (this.powerSamples.length > this.options.windowSize) this.powerSamples.shift();
 
       let gravityUpdated = false;
+      const hasWind = !!(shot.wind && shot.wind.power > 0);
       if (vertAccel !== null && vertAccel > 0 &&
-          (!this.options.gravityRequiresZeroWind || windX === 0)) {
+          (!this.options.gravityRequiresZeroWind || (windX === 0 && !hasWind))) {
         bucket.gravity.push(vertAccel);
         if (bucket.gravity.length > this.options.windowSize) bucket.gravity.shift();
         const a = MOBILE_A[mobileKey(shot.mobile)];
@@ -474,11 +522,23 @@
         originUpdated = true;
       }
 
+      const baseGravityObserved = median(bucket.gravity);
+      const baseGravityPredicted = this.predictGravity(shot.mobile);
+      const baseGravity = baseGravityObserved !== null ? baseGravityObserved
+        : (baseGravityPredicted !== null ? baseGravityPredicted : DEFAULT_PROFILE.gravity);
+      const windLearned = this.learnWind(shot, windX, vertAccel, baseGravity);
+
       const delta = {
         powerScale: powerScale,
         v0: v0,
         windX: windX,
         vertAccel: vertAccel,
+        wind: shot.wind || null,
+        windLearned: !!windLearned,
+        windSample: windLearned,
+        windUnit: median(this.windUnits),
+        windSignX: this.windSignX(),
+        windSignY: this.windSignY(),
         gravityUpdated: gravityUpdated,
         origin: origin,
         originUpdated: originUpdated,
@@ -540,6 +600,165 @@
       };
     }
 
+    /**
+     * Viento del turno actual. El `play` publica `wind_power` y
+     * `wind_angle + 180`; el page-hook llama a `setWind` con esos valores.
+     */
+    setWind(wind) {
+      if (!wind) {
+        this.wind = null;
+        return null;
+      }
+      const power = asNumber(wind.power);
+      const angle = asNumber(wind.angle);
+      if (power === null || angle === null) {
+        this.wind = null;
+        return null;
+      }
+      this.wind = {
+        power: Math.max(0, power),
+        angle: ((angle % 360) + 360) % 360,
+      };
+      return this.getWind();
+    }
+
+    getWind() {
+      return this.wind
+        ? { power: this.wind.power, angle: this.wind.angle }
+        : null;
+    }
+
+    /**
+     * Signo de la componente X del viento. El servidor envía `wind_angle+180`;
+     * el signo real se aprende del primer disparo con viento (`s[4]`) para no
+     * depender de la convención de la versión del cliente. El valor por
+     * defecto es el observado en vivo: viento a la izquierda con ángulo ~2°.
+     */
+    windSignX() {
+      const sample = median(this.windSamplesX);
+      if (sample === null || sample === 0) return -1;
+      return sample < 0 ? -1 : 1;
+    }
+
+    windSignY() {
+      const sample = median(this.windSamplesY);
+      if (sample === null || sample === 0) return 1;
+      return sample < 0 ? -1 : 1;
+    }
+
+    /**
+     * Convierte el vector `(wind_power, wind_angle)` en aceleraciones del
+     * mundo. El cliente usa `cos/sin · wind_power · b`; el servidor multiplica
+     * por una unidad de viento que se aprende de `s[4]` (≈5,36 por defecto).
+     *
+     * Coordenadas de pantalla (Y hacia abajo):
+     *   windX     = aceleración horizontal (+derecha)
+     *   windY     = aceleración vertical del viento (+abajo)
+     *   vertAccel = gravedad + windY
+     *
+     * El ángulo del `play` es `wind_angle + 180`; la convención observada en
+     * vivo es `windX ∝ -cos(ángulo)` y `windY ∝ -sin(ángulo)` (el viento de
+     * ángulo 2° sopla a la izquierda y ligeramente hacia arriba).
+     */
+    windEffect(mobile, wind, gravity) {
+      const key = normalizeMobile(mobile);
+      const b = MOBILE_B[key] === undefined ? 1 : MOBILE_B[key];
+      const g = Number(gravity) || DEFAULT_PROFILE.gravity;
+      const active = !!(wind && wind.power > 0);
+      const unit = median(this.windUnits);
+      const windUnit = unit === null ? DEFAULT_WIND_UNIT : unit;
+      const signX = this.windSignX();
+      const signY = this.windSignY();
+      const power = active ? wind.power : 0;
+      const angle = wind ? wind.angle : 0;
+      const rad = angle * Math.PI / 180;
+      const cosPart = active ? Math.round(Math.cos(rad) * power) : 0;
+      const sinPart = active ? Math.round(Math.sin(rad) * power) : 0;
+      const windX = active ? signX * cosPart * b * windUnit : 0;
+      const windYUp = active ? signY * sinPart * b * windUnit : 0;
+      const windY = -windYUp;
+      return {
+        active: active,
+        power: power,
+        angle: angle,
+        b: b,
+        unit: windUnit,
+        unitSource: unit === null ? 'default' : 'measured',
+        signX: signX,
+        signY: signY,
+        cosPart: cosPart,
+        sinPart: sinPart,
+        windX: windX,
+        windY: windY,
+        vertAccel: g + windY,
+        gravity: g,
+      };
+    }
+
+    /**
+     * Aprende la unidad de viento y su signo de un disparo con viento.
+     * `s[4]` es la aceleración horizontal y `s[5]` la vertical efectiva; la
+     * gravedad base sale de las muestras sin viento o de la predicción del
+     * móvil (nunca de `s[5]` de un tiro con viento).
+     */
+    learnWind(shot, windX, vertAccel, baseGravity) {
+      const wind = shot && shot.wind;
+      if (!wind || !(wind.power > 0) || windX === null || !Number.isFinite(windX)) {
+        return null;
+      }
+      const b = MOBILE_B[mobileKey(shot.mobile)];
+      if (b === undefined || !(b > 0)) return null;
+      const rad = wind.angle * Math.PI / 180;
+      const cosPart = Math.round(Math.cos(rad) * wind.power);
+      const sinPart = Math.round(Math.sin(rad) * wind.power);
+      const sample = { unit: null, signX: null, signY: null };
+
+      if (Math.abs(cosPart) >= 1) {
+        const raw = windX / (cosPart * b);
+        if (Number.isFinite(raw) &&
+            Math.abs(raw) >= MIN_WIND_UNIT && Math.abs(raw) <= MAX_WIND_UNIT) {
+          sample.unit = Math.abs(raw);
+          sample.signX = raw < 0 ? -1 : 1;
+          this.windSamplesX.push(raw);
+          if (this.windSamplesX.length > this.options.windowSize) {
+            this.windSamplesX.shift();
+          }
+        }
+      }
+      if (vertAccel !== null && Number.isFinite(vertAccel) &&
+          baseGravity > 0 && Math.abs(sinPart) >= 1) {
+        const windYUp = baseGravity - vertAccel;
+        const raw = windYUp / (sinPart * b);
+        if (Number.isFinite(raw) &&
+            Math.abs(raw) >= MIN_WIND_UNIT && Math.abs(raw) <= MAX_WIND_UNIT) {
+          sample.signY = raw < 0 ? -1 : 1;
+          this.windSamplesY.push(raw);
+          if (this.windSamplesY.length > this.options.windowSize) {
+            this.windSamplesY.shift();
+          }
+        }
+      }
+      if (sample.unit === null && sample.signY !== null &&
+          vertAccel !== null && Number.isFinite(vertAccel) &&
+          baseGravity > 0 && Math.abs(sinPart) >= 1) {
+        // Sin componente horizontal útil (viento casi vertical): la unidad
+        // sale de la componente vertical.
+        const raw = (baseGravity - vertAccel) / (sinPart * b);
+        if (Number.isFinite(raw) &&
+            Math.abs(raw) >= MIN_WIND_UNIT && Math.abs(raw) <= MAX_WIND_UNIT) {
+          sample.unit = Math.abs(raw);
+        }
+      }
+      if (sample.unit !== null) {
+        this.windUnits.push(sample.unit);
+        if (this.windUnits.length > this.options.windowSize) {
+          this.windUnits.shift();
+        }
+      }
+      return sample.unit === null && sample.signX === null && sample.signY === null
+        ? null : sample;
+    }
+
     getProfile(mobile) {
       const key = normalizeMobile(mobile || (this.last && this.last.shot.mobile) || 'Armor2D.png');
       const bucket = this.buckets.get(key) || { power: [], gravity: [] };
@@ -576,6 +795,7 @@
         : (tunedOrigin ? 'tuned' : (predictedOrigin ? 'predicted' : 'default'));
       const origin = appliedOrigin || tunedOrigin || predictedOrigin ||
         DEFAULT_PROFILE.origin;
+      const wind = this.windEffect(key, this.wind, gravity);
 
       return {
         mobile: key,
@@ -584,6 +804,7 @@
         gravitySource: gravitySource,
         origin: { a: origin.a, c: origin.c },
         offsetAtBody0: { x: origin.a, y: -origin.c },
+        wind: wind,
         source: ownPower === null ? 'fallback' : 'observed',
         originSource: originSource,
         originCalibrated: originSource === 'measured',
@@ -598,6 +819,7 @@
           power: bucket.power.length,
           gravity: bucket.gravity.length,
           origin: measuredOrigin ? measuredOrigin.samples : 0,
+          wind: this.windUnits.length,
         },
         pending: this.pendingShots.length,
       };
@@ -639,6 +861,10 @@
       this.buckets.clear();
       this.powerSamples = [];
       this.gravityUnits = [];
+      this.wind = null;
+      this.windUnits = [];
+      this.windSamplesX = [];
+      this.windSamplesY = [];
       this.last = null;
     }
 
@@ -657,7 +883,9 @@
     median: median,
     splitTopLevel: splitTopLevel,
     MOBILE_A: MOBILE_A,
+    MOBILE_B: MOBILE_B,
     MOBILE_AIM: MOBILE_AIM,
+    DEFAULT_WIND_UNIT: DEFAULT_WIND_UNIT,
     aimOrigin: aimOrigin,
     mobileKey: mobileKey,
   };

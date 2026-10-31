@@ -65,5 +65,53 @@
         time: 2050,
       },
     ],
+    // Captura live del 2026-10-20 con viento (Armor, look=1). `wind` es el
+    // viento que actuó sobre el disparo; `s[4]/s[5]` son las aceleraciones
+    // reales que el servidor aplicó. El `play` posterior trae el viento del
+    // siguiente turno, que no es el de esta tabla.
+    wind: [
+      {
+        name: 'wind-49-shot3',
+        mobile: '/static/images/mobiles/Armor2D.png',
+        shoot: ':322,47,-23,1,55,188,2175,0,[0,10,2000]',
+        x: 322,
+        y: 47,
+        body: -23,
+        look: 1,
+        ang: 55,
+        power: 188,
+        wind: { power: 49, angle: 3.4 },
+        s: [331, 15, 78, 427, -201, 378],
+        time: 2175,
+      },
+      {
+        name: 'wind-46-shot5',
+        mobile: '/static/images/mobiles/Armor2D.png',
+        shoot: ':367,42,-6,1,20,164,1150,0,[0,10,1500]',
+        x: 367,
+        y: 42,
+        body: -6,
+        look: 1,
+        ang: 20,
+        power: 164,
+        wind: { power: 46, angle: 3.4 },
+        s: [385, 14, 26, 372, -189, 378],
+        time: 1150,
+      },
+      {
+        name: 'wind-42-shot8',
+        mobile: '/static/images/mobiles/Armor2D.png',
+        shoot: ':491,53,-1,1,21,102,1275,0,[0,10,1200]',
+        x: 491,
+        y: 53,
+        body: -1,
+        look: 1,
+        ang: 21,
+        power: 102,
+        wind: { power: 42, angle: 3.4 },
+        s: [511, 27, 22, 232, -173, 382],
+        time: 1275,
+      },
+    ],
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

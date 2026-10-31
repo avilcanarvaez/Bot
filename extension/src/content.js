@@ -15,7 +15,15 @@
   const BRIDGE = 'dragonshot-ext';
   const OVERLAY = 'dragonshot-overlay';
   const ROOT_ID = 'dragonshot-extension-root';
-  const FALLBACK = { powerScale: 2.269, gravity: 390, origin: { a: 20.45, c: 25.83 } };
+  const FALLBACK = {
+    powerScale: 2.269,
+    gravity: 390,
+    origin: { a: 20.45, c: 25.83 },
+    wind: {
+      active: false, power: 0, angle: 0, b: 1, unit: 5.36,
+      unitSource: 'default', windX: 0, windY: 0, vertAccel: 390,
+    },
+  };
 
   let host = null;
   let shadow = null;
@@ -162,6 +170,7 @@
       '<div class="ds-row"><span>Destino</span><b id="ds-dest">—</b></div>',
       '<div class="ds-req"><span>Potencia necesaria</span><b id="ds-power">—</b></div>',
       '<div class="ds-row"><span>Ángulo</span><b id="ds-angle">—</b></div>',
+      '<div class="ds-row"><span>Viento</span><b id="ds-wind">—</b></div>',
       '<div class="ds-row"><span>Calibración</span><b id="ds-cal">—</b></div>',
       '<div class="ds-diag" id="ds-diag">—</div>',
       '<div class="ds-hint" id="ds-hint">Haz clic en el campo. Alt: Ctrl + clic derecho. ',
@@ -178,6 +187,7 @@
       dest: shadow.getElementById('ds-dest'),
       power: shadow.getElementById('ds-power'),
       angle: shadow.getElementById('ds-angle'),
+      wind: shadow.getElementById('ds-wind'),
       cal: shadow.getElementById('ds-cal'),
       diag: shadow.getElementById('ds-diag'),
       hint: shadow.getElementById('ds-hint'),
@@ -468,12 +478,14 @@
     if (!snapshot) {
       setState('SIN JUEGO', 'bad');
       setText(els.cal, '—');
+      setText(els.wind, '—');
       publishDebug(null);
       return;
     }
     if (!lastSnapshotAt || Date.now() - lastSnapshotAt > 2000) {
       setState('SIN CONEXIÓN', 'bad');
       setText(els.cal, '—');
+      setText(els.wind, '—');
       publishDebug(null);
       return;
     }
@@ -483,6 +495,7 @@
         : (snapshot.reason === 'sin-jugador' ? 'SIN JUGADOR' : 'SIN PIXI');
       setState(label, 'bad');
       setText(els.cal, '—');
+      setText(els.wind, '—');
       publishDebug(null);
       return;
     }
@@ -496,6 +509,7 @@
 
     setText(els.origin, 'CAÑÓN');
     setText(els.angle, angAbs == null ? '—' : Math.round(angAbs) + '°');
+    setText(els.wind, windLabel(profile.wind, profile.gravity));
     const samples = profile.samples && profile.samples.power;
     const calSource = profile.gravitySource || 'default';
     const originSource = profile.originSource || 'default';
@@ -603,6 +617,15 @@
       panel.dataset.gravity = String(Math.round((snapshot.profile.gravity || 0) * 10) / 10);
       panel.dataset.gravitySource = snapshot.profile.gravitySource || '';
       panel.dataset.originSource = snapshot.profile.originSource || '';
+      const wind = snapshot.profile.wind;
+      panel.dataset.windPower = wind ? String(wind.power) : '';
+      panel.dataset.windAngle = wind ? String(wind.angle) : '';
+      panel.dataset.windX = wind ? String(Math.round(wind.windX * 10) / 10) : '';
+      panel.dataset.vertAccel = wind ? String(Math.round(wind.vertAccel * 10) / 10) : '';
+      panel.dataset.windB = wind ? String(wind.b) : '';
+      panel.dataset.windUnit = wind ? String(Math.round(wind.unit * 100) / 100) : '';
+      panel.dataset.windSource = wind ? wind.unitSource : '';
+      panel.dataset.windActive = wind && wind.active ? '1' : '';
     }
     if (snapshot && snapshot.me) {
       panel.dataset.look = String(snapshot.me.look);
@@ -631,6 +654,7 @@
       aimMirrored: snapshot && snapshot.me ? snapshot.me.aimMirrored : null,
       aimCheck: snapshot ? snapshot.aimCheck : null,
       body: snapshot && snapshot.me ? snapshot.me.body : null,
+      wind: snapshot && snapshot.profile ? snapshot.profile.wind : null,
     });
   }
 
@@ -641,6 +665,21 @@
 
   function setText(el, text) {
     if (el) el.textContent = text;
+  }
+
+  /**
+   * Etiqueta compacta del viento: número del `play` y flechas de dirección.
+   * `wind.windX` es la aceleración horizontal (+derecha) y `wind.vertAccel`
+   * la vertical efectiva (menor que la gravedad = viento hacia arriba).
+   */
+  function windLabel(wind, gravity) {
+    if (!wind) return '—';
+    if (!wind.active) return '0';
+    const g = Number(gravity) || FALLBACK.gravity;
+    const horizontal = wind.windX < -0.5 ? '←' : (wind.windX > 0.5 ? '→' : '·');
+    const vertical = wind.vertAccel < g - 0.5 ? '↑'
+      : (wind.vertAccel > g + 0.5 ? '↓' : '');
+    return horizontal + ' ' + Math.round(wind.power) + (vertical ? ' ' + vertical : '');
   }
 
   function setState(text, kind) {
@@ -714,6 +753,9 @@
     if (angAbs == null) return { ok: false, reason: 'SIN ÁNGULO' };
     const gravity = Number(profile.gravity) || FALLBACK.gravity;
     const powerScale = Number(profile.powerScale) || FALLBACK.powerScale;
+    const wind = profile.wind || {};
+    const windX = Number(wind.windX) || 0;
+    const vertAccel = wind.vertAccel != null ? Number(wind.vertAccel) : gravity;
     const theta = angAbs * Math.PI / 180;
     const cos = Math.cos(theta);
     const sin = Math.sin(theta);
@@ -724,22 +766,41 @@
     const K = dx / cos;
     if (!(K > 0)) return { ok: false, reason: 'OBJETIVO DETRÁS' };
 
-    const inside = 2 * (dy + sin * K) / gravity;
+    // x(t) = v0·cosθ·t + ½·windX·t²
+    // y(t) = −v0·sinθ·t + ½·vertAccel·t²
+    // Eliminando v0:
+    //   t² = 2·(dy + tanθ·dx) / (vertAccel + tanθ·windX)
+    //   v0 = (K − ½·windX·t²/cos) / t
+    const tan = sin / cos;
+    const denom = vertAccel + tan * windX;
+    const inside = 2 * (dy + sin * K) / denom;
     if (!(inside > 0)) return { ok: false, reason: 'SIN SOLUCIÓN' };
 
     const tau = Math.sqrt(inside);
-    const v0 = K / tau;
+    const v0 = (K - 0.5 * windX * tau * tau / cos) / tau;
+    if (!(v0 > 0)) return { ok: false, reason: 'SIN SOLUCIÓN' };
     const power = v0 / powerScale;
     if (!(power >= 0 && power <= 400)) {
       return { ok: false, reason: 'INALCANZABLE', power: power };
     }
-    return { ok: true, power: power, tau: tau, v0: v0 };
+    return {
+      ok: true,
+      power: power,
+      tau: tau,
+      v0: v0,
+      windX: windX,
+      vertAccel: vertAccel,
+      windActive: !!wind.active,
+    };
   }
 
   function drawTrajectory(origin, angAbs, power, profile, color, maxTime, snap) {
     if (angAbs == null || !(power > 0)) return null;
     const gravity = Number(profile.gravity) || FALLBACK.gravity;
     const powerScale = Number(profile.powerScale) || FALLBACK.powerScale;
+    const wind = profile.wind || {};
+    const windX = Number(wind.windX) || 0;
+    const vertAccel = wind.vertAccel != null ? Number(wind.vertAccel) : gravity;
     const theta = angAbs * Math.PI / 180;
     const v0 = power * powerScale;
     const vx = Math.cos(theta) * v0;
@@ -759,8 +820,8 @@
     for (let i = 0; i <= steps; i++) {
       const t = tMax * i / steps;
       const world = {
-        x: origin.x + vx * t,
-        y: origin.y + vy * t + 0.5 * gravity * t * t,
+        x: origin.x + vx * t + 0.5 * windX * t * t,
+        y: origin.y + vy * t + 0.5 * vertAccel * t * t,
       };
       const point = worldToClient(world, snap);
       if (!point) break;
@@ -783,6 +844,8 @@
       end: points[points.length - 1] || null,
       vx: vx,
       vy: vy,
+      windX: windX,
+      vertAccel: vertAccel,
       tMax: tMax,
     };
   }

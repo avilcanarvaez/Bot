@@ -453,6 +453,111 @@
     approx(profile.origin.c, 40 * Math.sin(130 * Math.PI / 180), 1e-9, 'c aim');
   });
 
+  test('tabla b de viento cubre los 21 móviles', function () {
+    const keys = Object.keys(api.MOBILE_A);
+    assert(keys.length === 21, '21 móviles');
+    keys.forEach(function (key) {
+      assert(typeof api.MOBILE_B[key] === 'number', 'b de ' + key);
+    });
+    approx(api.MOBILE_B.armor, 0.76, 1e-12, 'Armor b');
+    approx(api.MOBILE_B.boomer, 1.39, 1e-12, 'Boomer b');
+    approx(api.MOBILE_B.fox, 0.61, 1e-12, 'Fox b');
+    approx(api.MOBILE_B.dragon2, 0.74, 1e-12, 'Dragon2 b');
+  });
+
+  test('viento 0 no altera la gravedad', function () {
+    const cal = new api.AutoCalibration();
+    cal.setWind({ power: 0, angle: 0 });
+    const profile = cal.getProfile('Armor2D.png');
+    assert(profile.wind.active === false, 'inactivo');
+    approx(profile.wind.windX, 0, 1e-12, 'windX');
+    approx(profile.wind.vertAccel, profile.gravity, 1e-12, 'vertAccel');
+    assert(profile.wind.unitSource === 'default', 'unidad por defecto');
+  });
+
+  test('viento horizontal izquierdo con Armor (unidad por defecto)', function () {
+    const cal = new api.AutoCalibration();
+    cal.setWind({ power: 49, angle: 3.4 });
+    const profile = cal.getProfile('Armor2D.png');
+    assert(profile.wind.active === true, 'activo');
+    approx(profile.wind.b, 0.76, 1e-12, 'b');
+    approx(profile.wind.unit, 5.36, 1e-12, 'unidad');
+    approx(profile.wind.windX, -49 * 0.76 * 5.36, 1e-9, 'windX');
+    approx(profile.wind.vertAccel, 390 - 3 * 0.76 * 5.36, 1e-9, 'vertAccel');
+    assert(profile.wind.windX < 0, 'viento a la izquierda');
+    assert(profile.wind.vertAccel < profile.gravity, 'viento hacia arriba');
+  });
+
+  test('el viento escala con b de cada móvil', function () {
+    const cal = new api.AutoCalibration();
+    cal.setWind({ power: 49, angle: 3.4 });
+    const armor = cal.getProfile('Armor2D.png').wind;
+    const boomer = cal.getProfile('Boomer2D.png').wind;
+    const fox = cal.getProfile('Fox2D.png').wind;
+    approx(boomer.windX / armor.windX, 1.39 / 0.76, 1e-9, 'Boomer/Armor');
+    approx(fox.windX / armor.windX, 0.61 / 0.76, 1e-9, 'Fox/Armor');
+    assert(Math.abs(boomer.windX) > Math.abs(armor.windX), 'Boomer sufre más');
+    assert(Math.abs(fox.windX) < Math.abs(armor.windX), 'Fox sufre menos');
+  });
+
+  test('aprende unidad y signo de viento de un disparo live', function () {
+    const cal = new api.AutoCalibration();
+    const f = fixtures.wind[0];
+    cal.setWind(f.wind);
+    cal.observeGameShoot(f.shoot, { mobile: f.mobile, wind: f.wind });
+    const result = cal.observePlay(playFor(f));
+    assert(result.matched && result.calibrated, result.reason || 'sin calibrar');
+    assert(result.delta.windLearned === true, 'aprendió viento');
+    approx(result.delta.windUnit, 5.397, 0.01, 'unidad aprendida');
+    const profile = cal.getProfile('Armor2D.png');
+    approx(profile.wind.unit, 5.397, 0.01, 'unidad del perfil');
+    approx(profile.wind.windX, -201, 1, 'windX live');
+    approx(profile.wind.vertAccel, 378, 1, 'vertAccel live');
+    assert(profile.wind.unitSource === 'measured', 'unidad medida');
+    assert(profile.wind.signX === -1, 'signo X');
+    assert(profile.wind.signY === 1, 'signo Y');
+    assert(profile.samples.wind === 1, 'muestra de viento');
+    assert(profile.originMeasured && profile.originMeasured.samples === 1,
+      'origen medido del fixture');
+  });
+
+  test('aprende la unidad de los 3 disparos live con viento (49/46/42)', function () {
+    const cal = new api.AutoCalibration();
+    fixtures.wind.forEach(function (f) {
+      cal.setWind(f.wind);
+      cal.observeGameShoot(f.shoot, { mobile: f.mobile, wind: f.wind });
+      const result = cal.observePlay(playFor(f));
+      assert(result.matched && result.calibrated,
+        f.name + ': ' + (result.reason || 'sin calibrar'));
+    });
+    const profile = cal.getProfile('Armor2D.png');
+    approx(profile.wind.unit, 5.41, 0.05, 'unidad live');
+    approx(profile.wind.windX, -173, 4, 'último windX');
+    approx(profile.wind.vertAccel, 382, 3, 'último vertAccel');
+    assert(profile.samples.wind === 3, '3 muestras');
+    assert(profile.powerScale > 2.26 && profile.powerScale < 2.28,
+      'powerScale live ' + profile.powerScale);
+  });
+
+  test('un viento casi vertical aprende la unidad de la componente Y', function () {
+    const cal = new api.AutoCalibration();
+    const wind = { power: 30, angle: 89 };
+    cal.setWind(wind);
+    cal.observeGameShoot(':931,13,0,0,78,181,3000,0,[]', {
+      mobile: '/static/images/mobiles/Armor2D.png',
+      wind: wind,
+    });
+    const result = cal.observePlay(playFor({
+      x: 931, y: 13, look: 0,
+      s: [911, -13, 78, 427, 0, 360],
+      time: 3000,
+    }));
+    assert(result.matched && result.calibrated, result.reason || 'sin calibrar');
+    const profile = cal.getProfile('Armor2D.png');
+    assert(profile.wind.unitSource === 'measured', 'unidad medida');
+    approx(profile.wind.unit, (390 - 360) / (Math.round(Math.sin(89 * Math.PI / 180) * 30) * 0.76), 1e-9, 'unidad Y');
+  });
+
   root.__DS_TEST_RESULTS = results;
 
   if (typeof document !== 'undefined') {

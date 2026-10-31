@@ -795,3 +795,87 @@ el origen de cada móvil desde el primer tiro:
 - Validación live móvil por móvil: confirmar que el vector `aim` coincide con
   el cañón real (Aduka/NAK tienen `adukafix` y Boomer es el caso más sensible).
 - Tipo de bala (§16.16) y viento por móvil si se habilitan.
+
+---
+
+## 17. Viento por móvil (2026-10-30, v0.2.0)
+
+### Objetivo
+
+Dejar de usar `AIRE = 0`: el viento (`wind_power`, `wind_angle`) debe afectar
+al disparo, la trayectoria y la potencia calculada en **todos** los móviles.
+
+### Fuente
+
+- El `play` del servidor publica el viento del **siguiente** turno en
+  `play[13]` (`wind_power`) y `play[14]` (`wind_angle + 180`).
+- El viento que actuó sobre un disparo está en `play[15][0].s[4]` (`windX`) y
+  `s[5]` (`vertAccel`).
+- El page-hook guarda el viento vigente con el `game_shoot` y, al llegar el
+  `play`, aprende la unidad/signos y actualiza el viento para el turno
+  siguiente.
+
+### Modelo
+
+```text
+cosPart = round(cos(wind_angle) · wind_power)
+sinPart = round(sin(wind_angle) · wind_power)
+windX   = signX · cosPart · b · unidad
+windYUp = signY · sinPart · b · unidad
+vertAccel = gravedadBase − windYUp
+```
+
+- `b` por móvil (`MOBILE_B`, 21 móviles): Armor `0,76`, Boomer `1,39`, Fox
+  `0,61`, Dragon2 `0,74`, etc.
+- `unidad` aprendida de `s[4] / (cosPart · b)`; por defecto `5,36`.
+- `signX`/`signY` aprendidos del primer disparo con viento; por defecto
+  `−1/+1` (ángulo ~2° → viento a la izquierda y hacia arriba).
+- La gravedad base no se toma de `s[5]` si el tiro tuvo viento; se mantiene la
+  mediana de los tiros sin viento o la predicción por móvil.
+
+### Potencia y trayectoria
+
+```text
+x(t) = x0 + v0·cosθ·t + ½·windX·t²
+y(t) = y0 − v0·sinθ·t + ½·vertAccel·t²
+
+K     = dx/cosθ
+t²    = 2·(dy + tanθ·dx) / (vertAccel + tanθ·windX)
+v0    = (K − ½·windX·t²/cosθ) / t
+power = v0 / powerScale
+```
+
+`solvePower` y `drawTrajectory` usan `profile.wind`; con viento 0 la fórmula se
+reduce a la anterior. El panel añade `VIENTO` con el número y flechas
+(`← 14`, `→ 14`, `← 14 ↑`), y `data-wind-power/angle/x/vert-accel/b/unit/source`.
+
+### Evidencia live (2026-10-20)
+
+Los tres disparos con viento de Armor (`b=0,76`) dan:
+
+| `wind_power` | `s[4]` | `s[5]` | `windYUp` | unidad X |
+|---:|---:|---:|---:|---:|
+| 49 | −201 | 378 | 12 | 5,40 |
+| 46 | −189 | 378 | 12 | 5,41 |
+| 42 | −173 | 382 | 8 | 5,42 |
+
+La unidad X ≈ 5,41 y la vertical ≈ 5,26 son coherentes con 5,36. El ángulo
+implícito ≈ 3,4°: izquierda/arriba, que fija la convención por defecto.
+
+### Pruebas
+
+- Auto-calibración **37/37** (7 nuevas): tabla `b` de 21 móviles; viento 0;
+  Armor con viento 49/3,4°; escala por `b` (Boomer/Fox); aprendizaje de
+  unidad/signos desde `s=[331,15,78,427,−201,378]`; los tres disparos live
+  49/46/42 (unidad ≈ 5,41); viento casi vertical.
+- Integración **64/64** (8 nuevas): `play` con viento 14 izquierda, perfil y
+  panel actualizados, potencia de frente mayor y trayectoria con viento que
+  termina en el destino.
+- `manifest.json` → **0.2.0**.
+
+### Pendiente
+
+- Validar en vivo con viento real y varios móviles (Armor, Boomer, Fox,
+  Dragon2); la captura live del viento es solo de Armor.
+- Probar un viento claramente vertical para confirmar el signo y la unidad Y.
+- La app Java de escritorio conserva `AIRE = 0`; no mezclar constantes.

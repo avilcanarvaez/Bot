@@ -25,18 +25,19 @@ es el vehículo correcto:
   gravedad `390`, tiempo en **segundos** y origen de **Armor** `(20.45, -25.83)`
   rotado por `body` (§7.4 y §16.9). La captura del **2026-10-20** en la sala 44
   midió `v0/power = 2.364` y `s[5] = 402`, por lo que la extensión recalibra en
-  runtime con `game_shoot.power` + `play.s[3]/s[5]` (§16.12). Con **AIRE = 0** la
-  trayectoria es balística pura.
+  runtime con `game_shoot.power` + `play.s[3]/s[5]` (§16.12). La v0.2.0
+  incorpora el **viento** (`wind_power`/`wind_angle`) con el factor `b` por
+  móvil, la unidad de viento aprendida de `s[4]` y la gravedad base separada
+  (§7.5 y §16.20).
 - La selección de **origen/destino** es interactiva: botón **Seleccionar
   destino** + clic normal sobre una capa encima del canvas, o `Ctrl + clic
   izquierdo/derecho` como atajo; el origen es el cañón del móvil propio, el
   destino es un punto de mundo y se dibuja la trayectoria + la marca de potencia
   (§8.2).
 
-> **Decisión de la primera versión (v1):** el viento se maneja como **0**
-> (`AIRE = 0`). La extensión puede leer `wind_power`/`wind_angle` para diagnóstico,
-> pero la física, `SIMULAR` y el asistente **no corrigen por viento** en esta
-> versión. Ver §7.3.
+> **Decisión v1 (superada en v0.2.0):** la primera versión usaba **viento 0**
+> (`AIRE = 0`). La v0.2.0 ya lee `wind_power`/`wind_angle` y los aplica a la
+> trayectoria, la potencia y el disparo de los 21 móviles. Ver §7.5 y §16.20.
 
 El proyecto Java de captura **no se descarta formalmente** en este documento: queda
 como respaldo hasta completar la validación de la extensión (protocolo, física live
@@ -121,7 +122,7 @@ están confirmados.
 | Escalas DPI, rects de ventana, multi-monitor | **No aplica**; coordenadas locales del juego |
 | Alineación origen/destino por template matching sobre píxeles | Coordenadas **exactas** del propio juego |
 | Ángulo estimado (Hough) | Ángulo **real** (`player.ang`) |
-| Viento capturado | Viento **leído** (`wind_power`/`wind_angle`); con AIRE=0 se ignora |
+| Viento capturado | Viento **leído** (`wind_power`/`wind_angle`) y aplicado con `b` por móvil (§7.5) |
 | Windows-only, JNA, click-through | Multiplataforma (Chrome/Edge/Firefox), Manifest V3 |
 | Juego debe estar visible y sin tapar | No requiere que la pestaña esté en foco para leer el estado |
 
@@ -158,10 +159,11 @@ están confirmados.
 | `src/auto-calibration.js` | MAIN | Módulo puro de física/calibración; lo usa `page-hook.js`. |
 | `src/background.js` | Service worker | El icono muestra/oculta el panel de página; no hay `default_popup`. |
 
-> **MVP actual:** no hay `overlay.css` ni `core/` separados. La balística AIRE=0
-> y la proyección viven en `content.js`; el estado de red y Pixi vive en
-> `page-hook.js`. `SIMULAR` todavía no existe como botón. El service worker solo
-> reenvía el clic del icono; el panel es una ventanita persistente en la página.
+> **MVP actual:** no hay `overlay.css` ni `core/` separados. La balística (con
+> viento desde v0.2.0) y la proyección viven en `content.js`; el estado de red y
+> Pixi vive en `page-hook.js`. `SIMULAR` todavía no existe como botón. El service
+> worker solo reenvía el clic del icono; el panel es una ventanita persistente
+> en la página.
 
 ### 3.2 Mensajería entre contextos
 
@@ -314,7 +316,8 @@ en server 6; `0x3A` en server 5). El orden de campos coincide con el remake;
 ```
 
 Campos que usa la extensión: `player.x/y`, `player.look`, `next_turn_number`,
-`nextplayer.position`, y **`wind_power`/`wind_angle`** (leídos; ignorados por AIRE=0).
+`nextplayer.position`, y **`wind_power`/`wind_angle`** (viento del siguiente
+turno; §7.5).
 
 Muestra live (2026-10-20):
 
@@ -325,7 +328,8 @@ Muestra live (2026-10-20):
 - `wind_power = 14` (índice 13).
 - `wind_angle + 180 = 2` (índice 14).
 - En la partida capturada `wind_power` varió entre 13 y 15.
-- El mapeo coincide con el contrato de arriba; **para v1 se ignora** y la física usa AIRE=0.
+- El mapeo coincide con el contrato de arriba; la v0.2.0 lo usa para la
+  trayectoria y la potencia (§7.5).
 
 ### 5.4 `room_state` — `message.js:39-...`
 
@@ -372,12 +376,13 @@ transformación vigente.
 
 ---
 
-## 7. Física con AIRE = 0 (modelo repo + calibración live)
+## 7. Física live (modelo repo + calibración, con viento)
 
 El servidor del **remake** construye el disparo en `src/game/game.js:436-547` y
 simula en `src/game/lib/shoot.js`. Esas fórmulas y constantes son la referencia
-`↩ repo`; **no son las de producción**. Para producción usar §7.4. Con
-**AIRE = 0** (sin viento) la trayectoria es balística pura en ambos modelos.
+`↩ repo`; **no son las de producción**. Para producción usar §7.4. Sin viento
+(`AIRE = 0`) la trayectoria es balística pura; la extensión v0.2.0 añade el
+viento en §7.5.
 
 ### 7.1 Transformaciones de entrada (servidor)
 
@@ -432,15 +437,14 @@ y(t) = origen.y - sin(ang°) * power_srv * (t/485) + 398 * (t/485)² / 2
 
 ### 7.3 Extensibilidad del aire
 
-`core/physics.js` expondrá una interfaz `DragModel` con una única implementación
-activa `NO_AIR` (AIRE = 0). Un modelo futuro (viento/arrastre) implementaría el
-equivalente de `setWindEfect` sin tocar el resto del sistema. **La UI mantiene AIRE
-fijo en 0** y no se implementa arrastre en esta fase.
+`core/physics.js` exponía una interfaz `DragModel` con una única implementación
+activa `NO_AIR` (AIRE = 0) en la app de escritorio. La **extensión web v0.2.0**
+ya implementa el viento del servidor: no usa arrastre, sino la aceleración
+`(windX, vertAccel)` que el propio `play` publica en `s[4]/s[5]` y una
+predicción por turno a partir de `wind_power`/`wind_angle` (§7.5).
 
-> **Decisión v1:** el viento se maneja como **0**. Aunque `play` trae
-> `wind_power`/`wind_angle` y se puedan leer para diagnóstico, `SIMULAR`, el
-> asistente de potencia y el overlay usan **AIRE = 0**. No se corrige por viento en
-> esta primera versión del app.
+> **Decisión v1 (superada):** el viento se manejaba como **0**. La v0.2.0 lo
+> habilita para los 21 móviles; el perfil separa gravedad base y viento.
 
 ### 7.4 Calibración live (producción, 2026-10-20)
 
@@ -508,11 +512,12 @@ x(t) = x0 + v0·cos(ang_abs)·t + 0.5·windX·t²
 y(t) = y0 − v0·sin(ang_abs)·t + 0.5·vertAccel·t²
 ```
 
-- **AIRE = 0 (v1):** `windX = 0`, `vertAccel = perfil.gravity` (fallback `390`,
-  auto-calibrado desde `s[5]` cuando `s[4] === 0`; §16.12).
-- `s[4]` y `s[5]` son la aceleración horizontal del viento y la aceleración
-  vertical efectiva (gravedad + componente vertical del viento). Se leen solo
-  para diagnóstico; v1 no los usa.
+- **Viento:** `windX` y `vertAccel` son la aceleración horizontal del viento y
+  la vertical efectiva (gravedad + componente vertical del viento). El `play`
+  las publica en `s[4]/s[5]` **después** del disparo; para predecir antes de
+  disparar se usa `wind_power`/`wind_angle` del `play` anterior y el modelo de
+  §7.5. `s[5]` solo se acepta como gravedad base si el disparo no tuvo viento
+  (`s[4] === 0` **y** `wind_power === 0`).
 - `game_shoot.time` es el tiempo de carga del disparo; **no** es el tiempo de
   vuelo. El tiempo de vuelo es `play[15].time`.
 - `s` llega **después** del disparo: sirve para calibrar y verificar, no para
@@ -533,10 +538,120 @@ quedan como fallback y el perfil se auto-calibra (§16.12). Detalle en §16.9.
 
 ---
 
+### 7.5 Viento (v0.2.0)
+
+#### Fuente y momento
+
+- El `play` del servidor publica el viento del **siguiente** turno en
+  `play[13] = wind_power` y `play[14] = wind_angle + 180`.
+- El viento que actuó sobre un disparo está en `s[4] = windX` y
+  `s[5] = vertAccel` del `play` que lo confirma.
+- El page-hook guarda el viento vigente con cada `game_shoot`
+  (`observeGameShoot(raw, { wind })`) y lo aprende al llegar el `play`. Después
+  actualiza el viento para el turno siguiente y publica el snapshot.
+- Por eso la **primera** predicción de un turno usa el viento del `play`
+  anterior; el `s[4]/s[5]` de ese turno solo se conoce al terminar el disparo.
+
+#### Modelo
+
+El cliente/aimbot usa `(cos, sin) · wind_power · b`, con `b` por móvil. La
+extensión replica esa idea y aprende la **unidad** de viento del propio servidor:
+
+```text
+rad      = radians(wind_angle)          // play[14], ya incluye +180
+cosPart  = round(cos(rad) · wind_power)
+sinPart  = round(sin(rad) · wind_power)
+
+windX    = signX · cosPart · b · unidad   // +derecha
+windYUp  = signY · sinPart · b · unidad   // +arriba
+vertAccel = gravedadBase − windYUp        // +abajo (pantalla)
+```
+
+- `b`: tabla del cliente (`MOBILE_B`): Armor `0,76`, Boomer `1,39`, Fox `0,61`,
+  Dragon2 `0,74`, etc. Cubre los **21 móviles**.
+- `unidad`: mediana de las muestras aprendidas de `s[4]`; por defecto
+  **5,36** (escala observada en vivo). Se aprende con
+  `unidadX = s[4] / (cosPart · b)`, dentro de `[1, 20]`.
+- `signX`/`signY`: se aprenden del primer disparo con viento para absorber la
+  convención del ángulo del servidor. Por defecto `signX = −1`,
+  `signY = +1`: con `play[14] ≈ 2°` el viento sopla a la **izquierda** y
+  ligeramente **hacia arriba**, que es lo observado en la captura live.
+- La gravedad base **no** se toma de `s[5]` si el disparo tuvo viento: se usa la
+  mediana de los tiros sin viento o la predicción por móvil (§16.17). El
+  `s[5]` con viento es `gravedad − windYUp`, no la gravedad de la sala.
+
+#### Potencia y trayectoria
+
+La trayectoria live es:
+
+```text
+x(t) = x0 + v0·cosθ·t + ½·windX·t²
+y(t) = y0 − v0·sinθ·t + ½·vertAccel·t²
+```
+
+Despejando `v0` para un destino `(dx, dy)`:
+
+```text
+K     = dx / cosθ
+t²    = 2·(dy + tanθ·dx) / (vertAccel + tanθ·windX)
+v0    = (K − ½·windX·t²/cosθ) / t
+power = v0 / powerScale
+```
+
+`drawTrajectory` y `solvePower` usan `profile.wind.windX` y
+`profile.wind.vertAccel`. Con viento 0 la fórmula se reduce a la de v1. La
+trayectoria solución termina en el destino también con viento (probado en
+integración).
+
+#### Perfil y panel
+
+`getProfile(mobile)` publica:
+
+```jsonc
+"wind": {
+  "active": true, "power": 14, "angle": 2,
+  "b": 0.76, "unit": 5.36, "unitSource": "default" | "measured",
+  "signX": -1, "signY": 1,
+  "cosPart": 14, "sinPart": 0,
+  "windX": -57.0, "windY": 0, "vertAccel": 402, "gravity": 402
+}
+```
+
+El panel añade la fila **VIENTO** (`← 14`, `→ 14`, `← 14 ↑`) y los atributos
+`data-wind-power`, `data-wind-angle`, `data-wind-x`, `data-vert-accel`,
+`data-wind-b`, `data-wind-unit`, `data-wind-source` y `data-wind-active`.
+`resetPhysics()` borra el viento y las muestras de unidad al cambiar de sala.
+
+#### Pruebas
+
+- Auto-calibración **37/37**: tabla `b` de los 21 móviles, viento 0, viento
+  horizontal de Armor, escala por `b` (Boomer/Fox), aprendizaje de unidad y
+  signos desde un `s` live (`−201/378`), los tres disparos live con viento
+  (49/46/42) y un viento casi vertical.
+- Integración **64/64**: el `play` con viento 14 izquierda actualiza el perfil y
+  el panel, la potencia de frente sube y la trayectoria con viento termina en el
+  destino.
+
+#### Límites
+
+- La convención del ángulo se calibró con la captura live (viento 49/46/42 a la
+  izquierda, `s[4]` negativo y `s[5] < gravedad`). Si el servidor cambia el
+  signo, el primer tiro con viento puede salir al revés; el aprendizaje lo
+  corrige en el siguiente.
+- La unidad de viento se aprende de `s[4]`; el primer tiro con viento de una
+  sala nueva usa 5,36. La desviación observada es ~1 %.
+- El viento vertical es pequeño en la captura (`sinPart` 2–3); se modela, pero
+  falta validarlo con ángulos más verticales en vivo.
+- El viento del primer turno solo se conoce si el servidor envió un `play`
+  previo. Sin él, se usa 0 hasta el primer `play`.
+
+---
+
 ## 8. `SIMULAR` (diseño funcional)
 
 `SIMULAR` calcula y dibuja la trayectoria **desde el origen real** con el **ángulo
-real** y, si se desea, la **potencia actual**, usando §7 con AIRE = 0.
+real** y, si se desea, la **potencia actual**, usando §7 con el viento del turno
+(§7.5).
 
 - **Origen:** `origen` del cañón (§7.1) desde `player.x/y`, `body`, `look`, móvil.
   Por defecto es automático; el usuario puede fijarlo con `Ctrl + clic derecho`
@@ -559,18 +674,19 @@ real** y, si se desea, la **potencia actual**, usando §7 con AIRE = 0.
 
 Integración de datos (resumen): identificar jugador/turno → obtener ángulo →
 actualizar campo `ÁNGULO` → seguir desplazamiento de escena (cámara) → `SIMULAR` usa
-origen/ángulo vigentes → dibujar con **AIRE = 0**.
+origen/ángulo vigentes → dibujar con el **viento del turno** (§7.5).
 
 ### 8.1 Asistente de potencia y ángulo ("¿hasta dónde disparo?")
 
 La barra del juego solo muestra la potencia **actual**; el usuario no sabe cuánta
 necesita para dar al rival. El asistente resuelve la **balística inversa** (§7 con
-AIRE = 0) y muestra el dato explícito.
+el viento del turno) y muestra el dato explícito.
 
-Definiciones live (producción, §7.4): `N = 1000` (ms → s), `θ` = ángulo efectivo
-(espejo por `look` y `body` ya aplicados), `W = perfil.gravity` (fallback `390`),
-`v0 = P_cliente × perfil.powerScale` (fallback `2.269`), `Δx = xt − x0`,
-`Δy = yt − y0`, `τ = t / N` (segundos).
+Definiciones live (producción, §7.4/§7.5): `N = 1000` (ms → s), `θ` = ángulo
+efectivo (espejo por `look` y `body` ya aplicados), `W = perfil.gravity`
+(fallback `390`), `v0 = P_cliente × perfil.powerScale` (fallback `2.269`),
+`Δx = xt − x0`, `Δy = yt − y0`, `τ = t / N` (segundos), `windX`/`vertAccel` del
+perfil de viento.
 
 **Potencia necesaria (con el ángulo actual):**
 
@@ -800,9 +916,9 @@ los escenarios G–O y del ciclo de sala/reconexión.
 - Overlay full-viewport en Shadow DOM; conversión mundo→viewport con la cámara.
 - Dibujo de origen/destino, trayectoria solución/actual y marca de potencia.
 
-**Fase 4 — Física AIRE=0 y asistente** *(implementado en MVP)*
-- Balística `AIRE=0` dentro de `content.js` (`solvePower`, `drawTrajectory`).
-- Panel con potencia necesaria y ángulo efectivo; sin botón `SIMULAR` todavía.
+**Fase 4 — Física con viento y asistente** *(implementado en MVP; viento v0.2.0)*
+- Balística con viento dentro de `content.js` (`solvePower`, `drawTrajectory`).
+- Panel con potencia necesaria, ángulo efectivo y viento; sin botón `SIMULAR`.
 - La marca de potencia es visual; no se escribe en la barra ni se dispara.
 
 **Fase 5 — Pruebas y endurecimiento**
@@ -832,10 +948,10 @@ extension/
 ## 11. Pruebas
 
 ### 11.1 Unitarias (JS)
-- `auto-calibration.js`: 14 pruebas con payloads reales en
+- `auto-calibration.js`: **37 pruebas** con payloads reales en
   `extension/test/auto-calibration.test.html` (fallback, `look=0`, `look=1`,
-  viento, reset, origen opcional, espejo con `body` y `onChange`). Resultado
-  actual: **14/14**.
+  viento por móvil, unidad/signos, reset, origen opcional, espejo con `body` y
+  `onChange`). Resultado actual: **37/37**.
 - `page-hook.js`: decodificación XOR de `game_shoot`/`play`/`room_state` y
   publicación de eventos (probado con frames simulados).
 - `content.js`: solución de potencia/trayectoria, proyección mundo→cliente,
@@ -847,11 +963,12 @@ extension/
 - **Harness mock:** página con WebSocket falso y un `PIXI.Application` falso
   (canvas, cámara, `player_info.is_me`). Valida hook → auto-calibración →
   snapshot → overlay → clic → potencia → `room_state`.
-- **Resultado:** **41/41** (ampliado en §16.13, §16.14 y §16.15); calibración `powerScale=2.3641`, `gravity=402`; panel
+- **Resultado:** **64/64** (ampliado en §16.13, §16.14, §16.15 y §16.20);
+  calibración `powerScale=2.3641`, `gravity=402`; panel
   `POTENCIA NECESARIA=166/400` para el destino de prueba; reset por `room_state`;
   selección por capa sin bloquear el ratón, destinos a izquierda/derecha con
-  `look=0/1`, marcador de potencia y acoplamiento del panel fuera del canvas
-  verificados.
+  `look=0/1`, marcador de potencia, acoplamiento del panel fuera del canvas y
+  viento con potencia/trayectoria afectadas verificados.
 - La extensión también se cargó como unpacked en Brave y se verificó que los
   content scripts MAIN/ISOLATED montan el hook y el host del overlay en
   `dragonbound.net` (pantalla de login, sin partida).
@@ -868,7 +985,7 @@ extension/
 | B | Cambios de ángulo | `ÁNGULO` sigue el `player.ang` real; cuadrantes y signos correctos. |
 | C | Dirección del disparo | `SIMULAR` respeta `look` (espejo 180−ang) y `body`. |
 | D | Integración `SIMULAR` | Usa origen/ángulo vigentes; se actualiza sin valores viejos. |
-| E | Condición de aire | `AIRE = 0` fijo; el viento leído se ignora; trayectoria balística pura. |
+| E | Condición de viento | El viento del turno (`wind_power`/`wind_angle`) afecta a la trayectoria y a la potencia; con viento 0 se reduce a balística pura. |
 | F | Estabilidad/rendimiento | Sin jitter ni parpadeo; overlay fluido; estado "no disponible" correcto. |
 
 > Los escenarios **G–O** de §8.2.3 cubren la selección `Ctrl + clic derecho`, el
@@ -922,6 +1039,9 @@ de escritorio ni DPI). Queda **fuera de la fase 1–5** y se documenta como plan
   `player_info.is_me`; la correlación de ángulo con `look=0`/`body=0` y la
   potencia ya están validadas. Queda integrar el módulo en el hook/overlay.
 - Definir el modo "observador" (dibujar para el jugador en turno, no solo el propio).
+- **Viento (v0.2.0):** el modelo está implementado y probado, pero la unidad y
+  los signos se calibraron con la captura de Armor; falta validar en vivo con
+  viento real, Boomer/Fox/Dragon2 y un ángulo vertical (§7.5/§16.20).
 - Decidir empaquetado: solo extensión, o extensión + app Java como respaldo.
 
 ---
@@ -1138,7 +1258,8 @@ presentar valores estimados como confirmados.
 
 - Entorno: Brave real, **Armor**, mapa **Metamine**, 1 vs 1, rival inmóvil.
 - Se capturaron **8 disparos**. Viento: `0` en los dos primeros turnos; después
-  `50, 49, 48, …, 42`. Por eso solo los dos primeros son válidos para AIRE = 0.
+  `50, 49, 48, …, 42`. Los dos primeros calibran la gravedad base; los seis con
+  viento validan la fórmula y la unidad de viento (§7.5/§16.20).
 - En `play` (índice 15) el servidor envía el resultado físico:
   `s=[x0,y0,ang_abs,v0,windX,vertAccel]`, `time` (ms) y `h` (impacto).
 - Importante: `wind_power` (índice 13) es el viento del **siguiente** turno. El
@@ -1264,11 +1385,11 @@ Archivo: `extension/src/auto-calibration.js`.
 - Empareja el `play` con un disparo propio pendiente por `x`, `y` y `look`;
   descarta `play` de otros jugadores.
 - `powerScale = s[3] / game_shoot.power`.
-- `gravity = s[5]` **solo si `s[4] === 0`** (viento horizontal nulo). Si hay
-  viento, la muestra se usa para `powerScale` pero no para gravedad. `s[5]` es la
-  aceleración vertical **efectiva**: si hubiera viento vertical, `s[4]` podría
-  ser 0 y `s[5]` incluir ese componente; se acepta como gravedad efectiva de la
-  sala. Para AIRE=0 estricto hay que validar con viento total 0.
+- `gravity = s[5]` **solo si el disparo no tuvo viento** (`s[4] === 0` **y**
+  `wind_power === 0`). Si hay viento, la muestra se usa para `powerScale` pero
+  no para gravedad. `s[5]` es la aceleración vertical **efectiva**: incluye la
+  componente vertical del viento, por eso no se acepta como gravedad si
+  `wind_power > 0` (§7.5).
 - Mediana de las últimas 8 muestras (`powerScale` y `gravity`) para resistir
   outliers y cambios de sala.
 - Fallback inicial: `2.269`, `390`, origen Armor `(a=20.45, c=25.83)`.
@@ -1665,9 +1786,9 @@ respaldo `390 / 75 = 5,2`. Ejemplos:
   `samples`, `mad`, `stable`).
 - **Tipo de bala**: los cubos son por móvil, no por `S1/S2/SS`; sigue vigente
   §16.16. Con Boomer y la segunda bala, la potencia puede desviarse ~3–4 %.
-- **Viento**: con `AIRE = 0` el factor `b` no interviene. Si se habilita el
-  viento, `b` también es por móvil (Boomer `1,39`, el mayor del juego) y habrá
-  que calibrarlo por móvil, no con una constante global.
+- **Viento**: implementado en v0.2.0 (§7.5/§16.20). El factor `b` es por móvil
+  (Boomer `1,39`, el mayor del juego); la unidad se aprende de `s[4]`, no de una
+  constante global. La gravedad base se mantiene separada del viento vertical.
 - **Validación live**: falta confirmar con el cliente real que Boomer cae en
   `~335` y que el origen no necesita corrección. Criterio: 5 disparos al mismo
   destino, `powerScale` estable < 1 % y error de caída dentro del marcador.
@@ -1746,8 +1867,8 @@ primer disparo.
   fallback es 390 hasta el primer disparo.
 - El **origen** de cada móvil se auto-calibra en v0.1.6 (§16.19); los tres
   primeros disparos usan el de Armor hasta reunir muestras estables.
-- El **viento** sigue en `AIRE = 0`; el factor `b` (Boomer `1,39`, el mayor)
-  tendrá que calibrarse por móvil si algún día se habilita.
+- El **viento** está implementado desde v0.2.0 (§7.5/§16.20): el factor `b` es
+  por móvil y la unidad/signos se aprenden del primer tiro con viento.
 - Falta validación live móvil por móvil; la tabla y el motor están cubiertos por
   pruebas, pero el cliente real solo se puede comprobar en partida.
 
@@ -1884,6 +2005,75 @@ El panel añade el origen al tooltip de calibración (`origen medido (n)`,
 - Con el origen propio de Boomer (detrás/arriba) la distancia al destino es algo
   mayor; su gravedad más baja compensa y la potencia queda cerca de la de
   Armor, no siempre por debajo.
+
+---
+
+### 16.20 Viento por móvil (2026-10-30, v0.2.0)
+
+#### Problema
+
+La v1 usaba `AIRE = 0`: leía `wind_power`/`wind_angle` pero no los aplicaba.
+El usuario pidió que el viento afectara **disparo, trayectoria y potencia** en
+todos los móviles. La captura live del 2026-10-20 ya contenía disparos con
+viento (`s[4] = −201/−189/−173`, `s[5] = 378/378/382` con `wind_power`
+49/46/42), lo que permitió derivar el modelo.
+
+#### Implementación
+
+- `AutoCalibration` guarda el viento vigente (`setWind`/`getWind`) y lo adjunta
+  al `game_shoot` pendiente. El page-hook lee `play[13]/[14]` después de
+  emparejar el disparo y actualiza el viento para el turno siguiente.
+- `MOBILE_B` contiene el factor `b` de los 21 móviles (Armor `0,76`, Boomer
+  `1,39`, Fox `0,61`, Dragon2 `0,74`, …).
+- `windEffect()` convierte `(wind_power, wind_angle)` en `windX` y `vertAccel`
+  con la unidad de viento aprendida de `s[4]` (por defecto `5,36`).
+- Los signos se aprenden del primer disparo con viento; por defecto
+  `signX = −1`, `signY = +1` (viento de ángulo 2° → izquierda/arriba).
+- La gravedad base se separa del viento: `s[5]` solo actualiza gravedad si
+  `s[4] === 0` **y** `wind_power === 0`. Así un viento vertical no contamina
+  la gravedad de la sala.
+- `solvePower` y `drawTrajectory` usan `windX`/`vertAccel`; la fórmula cerrada
+  con viento está en §7.5.
+- El panel muestra **VIENTO** con número y flechas; el snapshot y el perfil
+  publican `wind` y `data-wind-*`.
+
+#### Evidencia live
+
+Los tres disparos con viento de la captura del 2026-10-20 (Armor, `b=0,76`)
+permiten estimar la unidad:
+
+| `wind_power` | `s[4]` | `s[5]` | `windYUp = 390 − s[5]` | unidad X |
+|---:|---:|---:|---:|---:|
+| 49 | −201 | 378 | 12 | 5,40 |
+| 46 | −189 | 378 | 12 | 5,41 |
+| 42 | −173 | 382 | 8 | 5,42 |
+
+La unidad X (≈5,41) y la vertical (≈5,26) son coherentes con la escala 5,36.
+El ángulo implícito es ≈3,4°: `cos` negativo (izquierda) y `sin` positivo
+(arriba), de ahí la convención por defecto.
+
+#### Pruebas
+
+- **37/37** auto-calibración. Nuevas: tabla `b` de 21 móviles; viento 0;
+  Armor con viento 49/3,4° (`windX ≈ −199,6`, `vertAccel ≈ 377,8`); escala por
+  `b` (Boomer 1,39 / Fox 0,61); aprendizaje de unidad/signos desde
+  `s = [331,15,78,427,−201,378]` (`windX ≈ −201`, `vertAccel ≈ 378`); los tres
+  disparos live 49/46/42 (unidad ≈ 5,41); viento casi vertical.
+- **64/64** integración. Nuevo: un `play` con viento 14 izquierda actualiza el
+  snapshot/perfil, el panel muestra `VIENTO`, la potencia de frente sube y la
+  trayectoria con viento termina en el destino.
+
+#### Límites
+
+- Falta validar en vivo con viento real y varios móviles (Boomer/Fox/Dragon2);
+  la lógica y los fixtures están cubiertos, pero la captura live del viento es
+  de Armor.
+- El primer tiro con viento de una sala nueva usa la unidad 5,36 y el signo por
+  defecto; el aprendizaje lo corrige con el primer `s[4]`.
+- El viento vertical es pequeño en la captura; falta un caso live con ángulo
+  claramente vertical.
+- La app Java de escritorio conserva `AIRE = 0`; este cambio es solo de la
+  extensión web.
 
 ---
 

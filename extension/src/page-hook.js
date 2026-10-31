@@ -122,6 +122,14 @@
     return hasPhysics ? play : null;
   }
 
+  function parseWind(play) {
+    if (!Array.isArray(play)) return null;
+    const power = numberOr(play[13], null);
+    const angle = numberOr(play[14], null);
+    if (power === null || angle === null) return null;
+    return { power: Math.max(0, power), angle: angle };
+  }
+
   function tryPlayerInfo(text) {
     const api = getApi();
     if (!api) return null;
@@ -257,7 +265,10 @@
     const me = getMe();
     if (typeof raw === 'string') noteAimCheck(shot, me);
     const mobile = mobileNameOf(me) || 'unknown';
-    const observed = cal ? cal.observeGameShoot(raw, { mobile: mobile }) : null;
+    const observed = cal ? cal.observeGameShoot(raw, {
+      mobile: mobile,
+      wind: cal.getWind(),
+    }) : null;
     lastShotAt = Date.now();
     lastShotPower = numberOr(shot && shot.power, lastShotPower);
     post('game-shoot', {
@@ -272,6 +283,18 @@
     const cal = getCalibration();
     const me = getMe();
     const result = cal ? cal.observePlay(raw) : null;
+    // El `play` trae el viento del **siguiente** turno. Se aplica después de
+    // emparejar el disparo (que usa el viento guardado en `onShoot`) y antes
+    // de publicar el snapshot, para que el panel y la potencia ya lo usen.
+    const api = getApi();
+    let play = null;
+    try {
+      play = api ? api.parsePlay(raw) : null;
+    } catch (error) {
+      play = null;
+    }
+    const wind = parseWind(play);
+    if (cal && wind) cal.setWind(wind);
     if (!result) {
       postSnapshot();
       return;
@@ -281,10 +304,16 @@
       calibrated: !!result.calibrated,
       reason: result.reason || null,
       profile: cal ? cal.getProfile(mobileNameOf(me)) : null,
+      wind: cal ? cal.getWind() : null,
       delta: result.delta ? {
         powerScale: result.delta.powerScale,
         vertAccel: result.delta.vertAccel,
         windX: result.delta.windX,
+        wind: result.delta.wind,
+        windUnit: result.delta.windUnit,
+        windSignX: result.delta.windSignX,
+        windSignY: result.delta.windSignY,
+        windLearned: !!result.delta.windLearned,
         gravityUpdated: result.delta.gravityUpdated,
       } : null,
       // Diagnóstico en vivo: ángulo real del servidor (`s[2]`) junto a la
@@ -304,6 +333,7 @@
     lastShotPower = null;
     lastAimCheck = null;
     post('room-state', { room: room });
+    postSnapshot();
   }
 
   function processFrame(text, direction) {
@@ -1044,6 +1074,7 @@
       zoom: zoom,
       canvas: canvasInfo(pixiApp),
       profile: profile,
+      wind: cal ? cal.getWind() : null,
       origin: origin,
       power: readPower(),
       aimCheck: lastAimCheck,

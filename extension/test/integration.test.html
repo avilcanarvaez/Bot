@@ -362,6 +362,43 @@
         assert('Armor recupera su perfil',
           window.__DS_EXT_HOOK__.profile().mobile === 'armor', window.__DS_EXT_HOOK__.profile());
 
+        // Viento: el `play` publica el viento del siguiente turno. Se emite un
+        // play sin disparo pendiente (posición distinta) para fijar viento 14
+        // a la izquierda; el perfil y la potencia deben reaccionar.
+        const windPlay = [8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 14, 2,
+          [{ s: [0, 0, 153, 461, 0, 402], time: 1175 }]];
+        ws._emit('message', { data: encode('\x06' + JSON.stringify(windPlay), 0xDB) });
+        await wait(240);
+        const windSnap = window.__DS_EXT_HOOK__.snapshot();
+        assert('snapshot publica el viento',
+          windSnap.wind && windSnap.wind.power === 14, windSnap.wind);
+        assert('perfil calcula el viento',
+          windSnap.profile.wind && windSnap.profile.wind.active === true,
+          windSnap.profile.wind);
+        assert('viento horizontal a la izquierda',
+          windSnap.profile.wind.windX < 0, windSnap.profile.wind);
+        assert('panel muestra el número de viento',
+          panelText().indexOf('VIENTO') >= 0 && panelText().indexOf('14') >= 0,
+          panelText());
+        assert('panel publica data-wind-power',
+          powerPanelEl.dataset.windPower === '14', powerPanelEl.dataset);
+        const windPower = Number(powerPanelEl.dataset.power);
+        assert('el viento cambia la potencia',
+          windPower > 0 && windPower !== armorPower,
+          { armorPower: armorPower, windPower: windPower });
+        assert('el viento de frente pide más potencia',
+          windPower > armorPower, { armorPower: armorPower, windPower: windPower });
+        const windState = debugState();
+        assert('la trayectoria con viento termina en el destino',
+          windState && windState.trajectory && windState.trajectory.end &&
+          windState.destClient &&
+          Math.hypot(windState.trajectory.end.x - windState.destClient.x,
+            windState.trajectory.end.y - windState.destClient.y) < 3,
+          {
+            end: windState && windState.trajectory && windState.trajectory.end,
+            dest: windState && windState.destClient,
+          });
+
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await wait(120);
         assert('Esc limpia destino', panelText().indexOf('SIN DESTINO') >= 0, panelText());
