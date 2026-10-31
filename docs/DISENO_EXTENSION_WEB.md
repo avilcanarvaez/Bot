@@ -554,26 +554,29 @@ quedan como fallback y el perfil se auto-calibra (§16.12). Detalle en §16.9.
 
 #### Modelo
 
-El cliente/aimbot usa `(cos, sin) · wind_power · b` (con `parseInt`, aproximado).
-La extensión replica la **estructura** pero usa flotantes (el servidor no trunca
-a entero) y aprende la **escala de viento por móvil** desde `s[4]`:
+El servidor escala el viento con la **gravedad del móvil** (`setWindEfect` del
+remake usa `weight`, la gravedad base), no con un `b` separado. La captura live
+de Armor da `s[4] ≈ 4,11·wind_power` con gravedad 390:
 
 ```text
-rad      = radians(wind_angle)          // play[14], ya incluye +180
-cosPart  = cos(rad) · wind_power        // flotante, sin redondear
-sinPart  = sin(rad) · wind_power
+rad       = radians(wind_angle)         // play[14], ya incluye +180
+cosPart   = cos(rad) · wind_power       // flotante, sin redondear
+sinPart   = sin(rad) · wind_power
 
-escala   = mediana(s[4] / cosPart)      // por móvil, px/s² por wind_power
-windX    = signX · cosPart · escala     // +derecha
-windYUp  = signY · sinPart · escala     // +arriba
+escala    = gravedad · 0,01054          // WIND_GRAVITY_RATIO
+windX     = signX · cosPart · escala    // +derecha
+windYUp   = signY · sinPart · escala    // +arriba
 vertAccel = gravedadBase − windYUp      // +abajo (pantalla)
 ```
 
-- `b`: tabla del cliente (`MOBILE_B`): Armor `0,76`, Boomer `1,39`, Fox `0,61`,
-  Dragon2 `0,74`, etc. Cubre los **21 móviles**. Solo es la **semilla** de la
-  escala mientras el móvil no tiene muestras (`escala = b · 5,41`).
-- `escala`: mediana de las muestras por móvil de `s[4] / cosPart`, dentro de
-  `[0,5, 25]`. La semilla por defecto es `b · 5,41` (Armor ≈ `4,11`).
+- `WIND_GRAVITY_RATIO = 4,11 / 390 ≈ 0,01054`. Armor: `390 · 0,01054 = 4,11`;
+  Boomer (gravedad 325) → `3,42`. El móvil más ligero sufre **menos**
+  aceleración de viento (pero vuela más tiempo).
+- `escala`: se aprende por móvil desde `s[4] / cosPart` (dentro de `[0,5, 25]`)
+  y se siembra con `gravedad · 0,01054`. La mediana corrige cualquier desvío.
+- La tabla `b` del aimbot (Boomer `1,39`, Dragon2 `0,74`, …) se **eliminó**: era
+  una semilla poco fiable (Boomer `1,39` duplicaba la escala real y dejaba el
+  viento de Boomer ~2,2× de más).
 - `signX`/`signY`: se aprenden del primer disparo con viento para absorber la
   convención del ángulo del servidor. Por defecto `signX = −1`,
   `signY = +1`: con `play[14] ≈ 2°` el viento sopla a la **izquierda** y
@@ -615,15 +618,16 @@ integración).
 ```jsonc
 "wind": {
   "active": true, "power": 14, "angle": 2,
-  "b": 0.76, "unit": 4.11, "unitSource": "default" | "measured",
+  "b": 0.01054, "unit": 4.11, "unitSource": "default" | "measured",
   "signX": -1, "signY": 1,
   "cosPart": 13.99, "sinPart": 0.49,
   "windX": -57.0, "windY": 0, "vertAccel": 402, "gravity": 402
 }
 ```
 
-> `unit` es la **escala aplicada** del móvil (px/s² por `wind_power`), no una
-> constante global; `b` es la semilla del aimbot.
+> `unit` es la **escala aplicada** del móvil (px/s² por `wind_power`), sembrada
+> con `gravedad · WIND_GRAVITY_RATIO`; `b` es ese ratio (0,01054), no un factor
+> por móvil.
 
 El panel añade la fila **VIENTO** (`← 14`, `→ 14`, `← 14 ↑`) y los atributos
 `data-wind-power`, `data-wind-angle`, `data-wind-x`, `data-vert-accel`,
@@ -632,10 +636,10 @@ El panel añade la fila **VIENTO** (`← 14`, `→ 14`, `← 14 ↑`) y los atri
 
 #### Pruebas
 
-- Auto-calibración **37/37**: tabla `b` de los 21 móviles, viento 0, viento
-  horizontal de Armor, escala por `b` (Boomer/Fox), aprendizaje de escala y
-  signos desde un `s` live (`−201/378`), los tres disparos live con viento
-  (49/46/42) y un viento casi vertical.
+- Auto-calibración **36/36**: viento 0, viento horizontal de Armor, escala por
+  gravedad (Armor/Boomer), aprendizaje de escala y signos desde un `s` live
+  (`−201/378`), los tres disparos live con viento (49/46/42) y un viento casi
+  vertical.
 - Integración **64/64**: el `play` con viento 14 izquierda actualiza el perfil y
   el panel, la potencia de frente sube y la trayectoria con viento termina en el
   destino.
@@ -647,9 +651,9 @@ El panel añade la fila **VIENTO** (`← 14`, `→ 14`, `← 14 ↑`) y los atri
   signo, el primer tiro con viento puede salir al revés; el aprendizaje lo
   corrige en el siguiente.
 - La escala de viento se aprende **por móvil** desde `s[4]`; el primer tiro con
-  viento de un móvil nuevo usa la semilla `b · 5,41` y puede desviarse hasta
-  que se aprende. Si el `b` del aimbot no es exacto para ese móvil, el primer
-  tiro es el que más se desvía y los siguientes convergen.
+  viento de un móvil nuevo usa la semilla `gravedad · 0,01054` y puede
+  desviarse si la gravedad predicha aún no está afinada. Tras un tiro con
+  viento la escala converge.
 - La **componente vertical** depende de la precisión de `wind_angle` (índice 14
   del `play`). Si llega como entero en grados, `sin(ángulo)·power` pierde la
   fracción y la predicción vertical queda desviada unos píxeles; la horizontal
@@ -2024,6 +2028,10 @@ El panel añade el origen al tooltip de calibración (`origen medido (n)`,
 
 ### 16.20 Viento por móvil (2026-10-30, v0.2.0)
 
+> **Nota:** el modelo `b` por móvil descrito aquí quedó **superado** en v0.2.3
+> (§16.22): el viento escala con la gravedad del móvil, no con un `b` separado.
+> Se conserva como histórico.
+
 #### Problema
 
 La v1 usaba `AIRE = 0`: leía `wind_power`/`wind_angle` pero no los aplicaba.
@@ -2116,6 +2124,50 @@ y el factor de viento cambia con el móvil. Cambios:
 
 Pruebas: **37/37** auto-calibración y **64/64** integración (sin cambios de
 conteo; solo se re-expresaron las expectativas de la escala).
+
+### 16.22 Viento ∝ gravedad (2026-10-31, v0.2.3)
+
+Pruebas live con Boomer: con viento activo, potencia, viento y trayectoria
+quedaban mal. La causa: la semilla `b · 5,41` usaba el `b` del aimbot, que para
+Boomer es `1,39` (el único valor fuera del rango 0,61–0,87) y dejaba la escala
+en `7,52` en vez de la real.
+
+Revisando el servidor del remake (`game.js` + `shoot.js:setWindEfect`), el
+viento escala con la **gravedad del móvil** (`weight`), no con un `b` aparte:
+
+```js
+// shoot.js:setWindEfect
+b0 = round(parseInt(cos(wind_ang)·wind_power·this.weight)) / 100   // weight = gravedad
+```
+
+La captura live de Armor da `s[4] ≈ 4,11·wind_power` con gravedad 390, luego:
+
+```text
+escala_viento = gravedad · WIND_GRAVITY_RATIO
+WIND_GRAVITY_RATIO = 4,11 / 390 ≈ 0,01054
+```
+
+| Móvil | gravedad | escala de viento |
+| --- | ---: | ---: |
+| Armor | 390 | 4,11 |
+| Boomer | 325 | 3,42 |
+| Dragon2 | 624 | 6,58 |
+
+Cambios:
+
+- Se elimina `MOBILE_B` (tabla `b` del aimbot) y `DEFAULT_WIND_UNIT`.
+- `windScale(mobile, gravity)` siembra con `gravedad · WIND_GRAVITY_RATIO` y
+  sigue aprendiendo la escala por móvil desde `s[4]` (mediana) para absorber
+  cualquier desvío.
+- El perfil publica `b = WIND_GRAVITY_RATIO` y `unit = escala aplicada`.
+- Origen de Boomer ya corregido en v0.2.2 (§16.19).
+
+Pruebas: **36/36** auto-calibración y **64/64** integración (se reemplazó el
+test de la tabla `b` por el de escala-por-gravedad). `manifest.json` → **0.2.3**.
+
+Pendiente: confirmar en vivo que Boomer ya acierta con viento (escala ~3,42) y
+que la gravedad `a=62,5` (→ 325) es correcta; si la potencia sigue desviada, el
+siguiente paso es calibrar la gravedad de Boomer con un tiro sin viento.
 
 ---
 

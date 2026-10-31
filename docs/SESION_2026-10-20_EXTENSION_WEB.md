@@ -919,3 +919,44 @@ la tabla del aimbot. El cañón de Boomer está **delante**, como Armor. Cambios
 
 Pendiente: confirmar en vivo que el disparo de Boomer sale ahora del cañón
 delantero y que la auto-calibración refina el origen exacto.
+
+### Viento ∝ gravedad (2026-10-31, v0.2.3)
+
+Con el origen corregido, Boomer seguía mal en potencia/viento/trayectoria. La
+causa: la semilla de viento usaba el `b` del aimbot (`Boomer 1,39`), dejando la
+escala en `7,52` (el doble de la real). Revisando el servidor del remake
+(`game.js` + `shoot.js:setWindEfect`), el viento escala con la **gravedad**
+(`weight`) del móvil, no con un `b` aparte:
+
+```js
+// shoot.js:setWindEfect
+b0 = round(parseInt(cos(wind_ang)·wind_power·this.weight)) / 100   // weight = gravedad
+```
+
+La captura live de Armor (`s[4] ≈ 4,11·wind_power`, gravedad 390) fija la
+relación:
+
+```text
+escala_viento = gravedad · WIND_GRAVITY_RATIO
+WIND_GRAVITY_RATIO = 4,11 / 390 ≈ 0,01054
+```
+
+| Móvil | gravedad | escala de viento |
+| --- | ---: | ---: |
+| Armor | 390 | 4,11 |
+| Boomer | 325 | 3,42 |
+| Dragon2 | 624 | 6,58 |
+
+Cambios:
+
+- Se elimina `MOBILE_B` (tabla `b` del aimbot) y `DEFAULT_WIND_UNIT`.
+- `windScale(mobile, gravity)` siembra con `gravedad · WIND_GRAVITY_RATIO` y
+  sigue aprendiendo la escala por móvil desde `s[4]`.
+- Perfil: `b = WIND_GRAVITY_RATIO`, `unit = escala aplicada`.
+
+Pruebas: **36/36** auto-calibración y **64/64** integración (el test de la tabla
+`b` se reemplazó por el de escala-por-gravedad). `manifest.json` → **0.2.3**.
+
+Pendiente: confirmar en vivo que Boomer ya acierta con viento (escala ~3,42).
+Si la potencia sigue desviada, el siguiente paso es calibrar la gravedad de
+Boomer con un tiro sin viento (`a=62,5` sigue sin validar en vivo).

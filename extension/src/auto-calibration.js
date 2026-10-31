@@ -136,39 +136,15 @@
   const ARMOR_A = MOBILE_A.armor;
   const DEFAULT_GRAVITY_UNIT = DEFAULT_PROFILE.gravity / ARMOR_A;
 
-  // Factor de viento `b` por móvil (tabla del cliente, `script.js:22-110`).
-  // Es solo la semilla de la escala por móvil: el servidor aplica
-  // `windX = componente · escala` y la escala se aprende de `s[4]` (la semilla
-  // es `b · 5,41`). No confundir con `a` (gravedad).
-  const MOBILE_B = Object.freeze({
-    armor: 0.76,
-    ice: 0.625,
-    aduka: 0.7,
-    lightning: 0.72,
-    bigfoot: 0.74,
-    jd: 0.625,
-    asate: 0.765,
-    random: 0.827,
-    knight: 0.695,
-    fox: 0.61,
-    dragon: 0.74,
-    dragon2: 0.74,
-    nak: 0.875,
-    trico: 0.87,
-    mage: 0.78,
-    turtle: 0.75,
-    boomer: 1.39,
-    electrico: 0.74,
-    frog: 0.74,
-    kalsiddon: 0.74,
-    grub: 0.69,
-  });
-  // Escala de viento de respaldo, en px/s² por unidad de `wind_power`. Es el
-  // valor que la captura live de Armor dio (`s[4] ≈ 4,11·wind_power` con
-  // `b = 0,76` → 4,11 / 0,76 ≈ 5,41). El servidor usa las componentes flotantes
-  // `cos(ángulo)·power` y `sin(ángulo)·power`, **sin** truncar a entero; por
-  // eso la escala se aprende por móvil con esos mismos flotantes.
-  const DEFAULT_WIND_UNIT = 5.41;
+  // Viento: el servidor escala la aceleración con la GRAVEDAD del móvil
+  // (`setWindEfect` del remake usa `weight`, la gravedad base), no con un `b`
+  // separado. La captura live de Armor da `s[4] ≈ 4,11·wind_power` con
+  // gravedad 390, luego:
+  //   escala_viento = gravedad · 0,01054
+  // (Armor: 390 · 0,01054 = 4,11; Boomer con gravedad 325 → 3,42). La tabla `b`
+  // del aimbot (Boomer 1,39, Dragon2 0,74, etc.) era una semilla poco fiable:
+  // se elimina en favor de esta relación con la gravedad, ya medida por móvil.
+  const WIND_GRAVITY_RATIO = 4.11 / 390;
   const MIN_WIND_SCALE = 0.5;
   const MAX_WIND_SCALE = 25;
 
@@ -546,7 +522,7 @@
         wind: shot.wind || null,
         windLearned: !!windLearned,
         windSample: windLearned,
-        windUnit: this.windScale(shot.mobile),
+        windUnit: this.windScale(shot.mobile, baseGravity),
         windUnitSource: this.windScaleSource(shot.mobile),
         windSignX: this.windSignX(),
         windSignY: this.windSignY(),
@@ -659,17 +635,18 @@
 
     /**
      * Escala de viento del móvil: aceleración en px/s² por unidad de
-     * `wind_power`. Se aprende por móvil desde `s[4]` (porque el factor de
-     * viento cambia con el móvil) y se siembra con `b · DEFAULT_WIND_UNIT`
+     * `wind_power`. El servidor la escala con la gravedad del móvil
+     * (`escala = gravedad · WIND_GRAVITY_RATIO`); se aprende por móvil desde
+     * `s[4]` para absorber cualquier desvío y se siembra con esa relación
      * mientras no haya muestras.
      */
-    windScale(mobile) {
+    windScale(mobile, gravity) {
       const key = normalizeMobile(mobile);
       const samples = this.windScales.get(key);
       const scale = samples && samples.length ? median(samples) : null;
       if (scale !== null) return scale;
-      const b = MOBILE_B[key] === undefined ? 1 : MOBILE_B[key];
-      return b * DEFAULT_WIND_UNIT;
+      const g = Number(gravity) || DEFAULT_PROFILE.gravity;
+      return g * WIND_GRAVITY_RATIO;
     }
 
     windScaleSource(mobile) {
@@ -694,10 +671,9 @@
      */
     windEffect(mobile, wind, gravity) {
       const key = normalizeMobile(mobile);
-      const b = MOBILE_B[key] === undefined ? 1 : MOBILE_B[key];
       const g = Number(gravity) || DEFAULT_PROFILE.gravity;
       const active = !!(wind && wind.power > 0);
-      const scale = this.windScale(key);
+      const scale = this.windScale(key, g);
       const signX = this.windSignX();
       const signY = this.windSignY();
       const power = active ? wind.power : 0;
@@ -712,7 +688,7 @@
         active: active,
         power: power,
         angle: angle,
-        b: b,
+        b: WIND_GRAVITY_RATIO,
         unit: scale,
         unitSource: this.windScaleSource(key),
         signX: signX,
@@ -913,9 +889,8 @@
     median: median,
     splitTopLevel: splitTopLevel,
     MOBILE_A: MOBILE_A,
-    MOBILE_B: MOBILE_B,
     MOBILE_AIM: MOBILE_AIM,
-    DEFAULT_WIND_UNIT: DEFAULT_WIND_UNIT,
+    WIND_GRAVITY_RATIO: WIND_GRAVITY_RATIO,
     aimOrigin: aimOrigin,
     mobileKey: mobileKey,
   };

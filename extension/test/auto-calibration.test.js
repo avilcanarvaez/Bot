@@ -453,18 +453,6 @@
     approx(profile.origin.c, 33 * Math.sin(52 * Math.PI / 180), 1e-9, 'c aim');
   });
 
-  test('tabla b de viento cubre los 21 móviles', function () {
-    const keys = Object.keys(api.MOBILE_A);
-    assert(keys.length === 21, '21 móviles');
-    keys.forEach(function (key) {
-      assert(typeof api.MOBILE_B[key] === 'number', 'b de ' + key);
-    });
-    approx(api.MOBILE_B.armor, 0.76, 1e-12, 'Armor b');
-    approx(api.MOBILE_B.boomer, 1.39, 1e-12, 'Boomer b');
-    approx(api.MOBILE_B.fox, 0.61, 1e-12, 'Fox b');
-    approx(api.MOBILE_B.dragon2, 0.74, 1e-12, 'Dragon2 b');
-  });
-
   test('viento 0 no altera la gravedad', function () {
     const cal = new api.AutoCalibration();
     cal.setWind({ power: 0, angle: 0 });
@@ -475,32 +463,36 @@
     assert(profile.wind.unitSource === 'default', 'unidad por defecto');
   });
 
-  test('viento horizontal izquierdo con Armor (escala por defecto)', function () {
+  test('viento horizontal izquierdo con Armor (escala por gravedad)', function () {
     const cal = new api.AutoCalibration();
     cal.setWind({ power: 49, angle: 3.4 });
     const profile = cal.getProfile('Armor2D.png');
-    const scale = 0.76 * api.DEFAULT_WIND_UNIT;
+    const scale = profile.gravity * api.WIND_GRAVITY_RATIO;
     assert(profile.wind.active === true, 'activo');
-    approx(profile.wind.b, 0.76, 1e-12, 'b');
+    approx(profile.wind.b, api.WIND_GRAVITY_RATIO, 1e-12, 'ratio');
     approx(profile.wind.unit, scale, 1e-9, 'escala');
     approx(profile.wind.windX,
       -Math.cos(3.4 * Math.PI / 180) * 49 * scale, 1e-9, 'windX');
     approx(profile.wind.vertAccel,
-      390 - Math.sin(3.4 * Math.PI / 180) * 49 * scale, 1e-9, 'vertAccel');
+      profile.gravity - Math.sin(3.4 * Math.PI / 180) * 49 * scale, 1e-9,
+      'vertAccel');
     assert(profile.wind.windX < 0, 'viento a la izquierda');
     assert(profile.wind.vertAccel < profile.gravity, 'viento hacia arriba');
   });
 
-  test('el viento escala con b de cada móvil', function () {
+  test('el viento escala con la gravedad de cada móvil', function () {
     const cal = new api.AutoCalibration();
     cal.setWind({ power: 49, angle: 3.4 });
+    const armorG = cal.getProfile('Armor2D.png').gravity;
+    const boomerG = cal.getProfile('Boomer2D.png').gravity;
     const armor = cal.getProfile('Armor2D.png').wind;
     const boomer = cal.getProfile('Boomer2D.png').wind;
-    const fox = cal.getProfile('Fox2D.png').wind;
-    approx(boomer.windX / armor.windX, 1.39 / 0.76, 1e-9, 'Boomer/Armor');
-    approx(fox.windX / armor.windX, 0.61 / 0.76, 1e-9, 'Fox/Armor');
-    assert(Math.abs(boomer.windX) > Math.abs(armor.windX), 'Boomer sufre más');
-    assert(Math.abs(fox.windX) < Math.abs(armor.windX), 'Fox sufre menos');
+    approx(armor.unit, armorG * api.WIND_GRAVITY_RATIO, 1e-9, 'Armor escala');
+    approx(boomer.unit, boomerG * api.WIND_GRAVITY_RATIO, 1e-9, 'Boomer escala');
+    approx(boomer.windX / armor.windX, boomerG / armorG, 1e-9, 'Boomer/Armor');
+    assert(boomerG < armorG, 'Boomer gravedad menor');
+    assert(Math.abs(boomer.windX) < Math.abs(armor.windX),
+      'Boomer sufre menos viento');
   });
 
   test('aprende escala y signo de viento de un disparo live', function () {
