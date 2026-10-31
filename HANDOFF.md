@@ -10,7 +10,7 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 36/36 y 64/64; calibración por móvil, cobertura de los 21 móviles, origen por móvil con tabla `aim` + auto-calibración (v0.1.7), **origen de Boomer corregido** (v0.2.2) y **viento ∝ gravedad** (v0.2.3, escala `gravedad·0,01054` aprendida de `s[4]`), validación live pendiente. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 36/36 y 67/67; calibración por móvil, cobertura de los 21 móviles, origen por móvil con tabla `aim` + auto-calibración (v0.1.7), **origen de Boomer corregido** (v0.2.2) y **viento ∝ gravedad** (v0.2.3, escala `gravedad·0,01054` aprendida de `s[4]`), validación live pendiente. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
@@ -161,7 +161,7 @@ out/            build (ignorado por git)
    primer tiro con viento; la gravedad base no se contamina con `s[5]` si hubo
    viento. La tabla `b` del aimbot se eliminó (Boomer 1,39 era erróneo). Panel
    `VIENTO`, `data-wind-*` y `window.__DS_WIND_LOG__`. Pruebas **36/36** y
-   **64/64**. Detalle en §7.5/§16.20/§16.21/§16.22. Falta: validar en vivo el
+   **67/67**. Detalle en §7.5/§16.20/§16.21/§16.22. Falta: validar en vivo el
    viento y la gravedad de Boomer, y comprobar si `wind_angle` trae decimales.
 7. Afinar detección con frames reales del juego (si se usa el plan B de visión).
 

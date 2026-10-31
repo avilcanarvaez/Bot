@@ -640,9 +640,9 @@ El panel añade la fila **VIENTO** (`← 14`, `→ 14`, `← 14 ↑`) y los atri
   gravedad (Armor/Boomer), aprendizaje de escala y signos desde un `s` live
   (`−201/378`), los tres disparos live con viento (49/46/42) y un viento casi
   vertical.
-- Integración **64/64**: el `play` con viento 14 izquierda actualiza el perfil y
+- Integración **67/67**: el `play` con viento 14 izquierda actualiza el perfil y
   el panel, la potencia de frente sube y la trayectoria con viento termina en el
-  destino.
+  destino; Boomer cierra la trayectoria en el destino a 20°, 45° y 70°.
 
 #### Límites
 
@@ -2162,8 +2162,9 @@ Cambios:
 - El perfil publica `b = WIND_GRAVITY_RATIO` y `unit = escala aplicada`.
 - Origen de Boomer ya corregido en v0.2.2 (§16.19).
 
-Pruebas: **36/36** auto-calibración y **64/64** integración (se reemplazó el
-test de la tabla `b` por el de escala-por-gravedad). `manifest.json` → **0.2.3**.
+Pruebas: **36/36** auto-calibración y **67/67** integración (se reemplazó el
+test de la tabla `b` por el de escala-por-gravedad y se añadió la verificación
+multi-ángulo de Boomer a 20°/45°/70°). `manifest.json` → **0.2.3**.
 
 Pendiente: confirmar en vivo que Boomer ya acierta con viento (escala ~3,42) y
 que la gravedad `a=62,5` (→ 325) es correcta; si la potencia sigue desviada, el

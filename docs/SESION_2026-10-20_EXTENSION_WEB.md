@@ -954,8 +954,10 @@ Cambios:
   sigue aprendiendo la escala por móvil desde `s[4]`.
 - Perfil: `b = WIND_GRAVITY_RATIO`, `unit = escala aplicada`.
 
-Pruebas: **36/36** auto-calibración y **64/64** integración (el test de la tabla
-`b` se reemplazó por el de escala-por-gravedad). `manifest.json` → **0.2.3**.
+Pruebas: **36/36** auto-calibración y **67/67** integración (el test de la tabla
+`b` se reemplazó por el de escala-por-gravedad, y se añadió la verificación
+multi-ángulo de Boomer: la trayectoria cierra en el destino a 20°, 45° y 70°).
+`manifest.json` → **0.2.3**.
 
 Pendiente: confirmar en vivo que Boomer ya acierta con viento (escala ~3,42).
 Si la potencia sigue desviada, el siguiente paso es calibrar la gravedad de

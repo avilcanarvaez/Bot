@@ -340,6 +340,34 @@
           Math.abs(boomerOriginSnap.origin.x - 805) < 1 &&
           Math.abs(boomerOriginSnap.origin.y - 87) < 1, boomerOriginSnap.origin);
 
+        // Verificación multi-ángulo de Boomer (viento 0): con el mismo destino,
+        // la trayectoria solución debe cerrar en el destino a ángulos bajos,
+        // medios y altos.
+        const multiCases = [
+          { label: 'bajo', aim: 20 },
+          { label: 'medio', aim: 45 },
+          { label: 'alto', aim: 70 },
+        ];
+        for (let i = 0; i < multiCases.length; i++) {
+          const m = multiCases[i];
+          await setAim(1, m.aim, 0);
+          const st = debugState();
+          const closed = st && st.solution && st.solution.ok &&
+            st.trajectory && st.trajectory.end && st.destClient &&
+            Math.hypot(st.trajectory.end.x - st.destClient.x,
+              st.trajectory.end.y - st.destClient.y) < 4;
+          assert('Boomer ángulo ' + m.label + ' (' + m.aim + '°) cierra en el destino',
+            closed, {
+              aim: m.aim,
+              power: powerPanelEl.dataset.power,
+              solution: st && st.solution,
+              end: st && st.trajectory && st.trajectory.end,
+              dest: st && st.destClient,
+            });
+        }
+        // Restaurar ángulo/cuerpo para no afectar las pruebas siguientes.
+        await setAim(1, 72, -17);
+
         setPlayer({
           mobile: 'Dragon22D.png',
           player_info: { is_me: true, is_turn: true, mobile: 'Dragon22D.png' },

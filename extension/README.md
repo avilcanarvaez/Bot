@@ -197,11 +197,13 @@ test/auto-calibration.test.js
 El resultado queda en `globalThis.__DS_TEST_RESULTS`. Estado actual: **36/36**.
 
 La integración hook → overlay se prueba en `test/integration.test.html` y está
-en **64/64**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
+en **67/67**. Incluye selección por botón/capa sin bloquear el ratón, `Ctrl +
 clic`, trayectoria a izquierda y derecha, `look=0/1`, apuntado espejado que se
 alinea con el lado real (izquierda y derecha), marcador de potencia visible,
 viento en el perfil/panel con la potencia y la trayectoria afectadas, reset por
-sala, acoplamiento fuera del canvas y ocultar/mostrar el panel desde el icono.
+sala, acoplamiento fuera del canvas, ocultar/mostrar el panel desde el icono y
+**verificación multi-ángulo de Boomer** (la trayectoria cierra en el destino a
+ángulos bajo 20°, medio 45° y alto 70°).
 Las fixtures usan payloads reales de la captura del 2026-10-20 y no contienen el
 token de sesión.
 
