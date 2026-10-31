@@ -6,8 +6,8 @@ Extensión MV3 para Chrome/Brave. Dibuja un overlay sobre DragonBound con:
 - destino elegido con el botón **Seleccionar destino** o con **Ctrl + clic**,
 - trayectoria solución con el ángulo actual y el **viento del turno**,
 - potencia necesaria marcada sobre la barra de poder,
-- auto-calibración de `powerScale`/`gravity` y de la **unidad de viento** a
-  partir de disparos propios.
+- auto-calibración de `powerScale`/`gravity` y de la **escala de viento por
+  móvil** a partir de disparos propios.
 
 La extensión **no dispara**, no modifica `#powerBar` y no envía paquetes. Solo
 observa la red y Pixi para dibujar.
@@ -62,6 +62,19 @@ La ventanita se acopla automáticamente al lado del canvas (`data-dock=right` o
 `left`) y, si no hay sitio, debajo/encima. En pantalla completa, donde no existe
 margen exterior, usa el borde superior derecho con borde ámbar; el botón `−` la
 contrae y el icono de la extensión la oculta/muestra.
+
+### Validar el viento en vivo
+
+Con viento activo, la extensión aprende la escala de viento de cada móvil desde
+`s[4]`. Para reportar desvíos, abre la consola del juego y copia el registro:
+
+```js
+copy(JSON.stringify(window.__DS_WIND_LOG__))
+```
+
+Cada entrada trae `mobile`, `windPower`, `windAngle`, `s4`, `s5`, `unit`,
+`unitSource`, `signX` y `signY` (sin token de sesión ni datos del rival). Con
+esos valores se puede verificar la escala por móvil (Armor/Boomer/Lightning…).
 
 La línea verde es la solución; la línea cian punteada es la trayectoria con la
 potencia actual. La marca verde sobre la barra es visual: no cambia la barra.
@@ -155,11 +168,13 @@ Reglas:
 - **Viento por móvil**: el `play` publica `wind_power` (índice 13) y
   `wind_angle + 180` (índice 14) del **siguiente** turno. El hook guarda ese
   viento con el `game_shoot` y lo aplica a la trayectoria y a la potencia.
-  `AutoCalibration` usa el factor `b` de cada móvil (Armor 0,76, Boomer 1,39,
-  Fox 0,61, Dragon2 0,74; tabla de 21) y una unidad de viento aprendida de
-  `s[4]` (por defecto 5,36). La gravedad base se mantiene separada: `s[5]` de
-  un tiro con viento no se usa como gravedad. El panel muestra `VIENTO` con el
-  número y la dirección.
+  `AutoCalibration` usa el factor `b` de cada móvil como semilla (Armor 0,76,
+  Boomer 1,39, Fox 0,61, Dragon2 0,74; tabla de 21) y **aprende la escala de
+  viento de cada móvil** desde `s[4]` (px/s² por unidad de `wind_power`; la
+  semilla es `b·5,41`). La componente vertical usa `sin(ángulo)·power` sin
+  truncar, igual que el servidor. La gravedad base se mantiene separada:
+  `s[5]` de un tiro con viento no se usa como gravedad. El panel muestra
+  `VIENTO` con el número y la dirección.
 - El perfil publica `mobile`, `gravitySource` (`observed` / `predicted` /
   `default`), `originSource` (`measured` / `tuned` / `predicted` / `default`),
   `wind` (`active`, `power`, `angle`, `b`, `unit`, `unitSource`, `windX`,
@@ -203,12 +218,14 @@ token de sesión.
 - La calibración de potencia por **tipo de bala** sigue pendiente (§16.16 del
   diseño): los cubos son por móvil, no por `S1/S2/SS`. Si se cambia de bala, la
   escala puede variar ~3–4 %.
-- **Viento**: la unidad se aprende de `s[4]` y arranca en 5,36; el primer tiro
-  con viento de una sala nueva puede desviarse ~1 %. La convención de signo se
-  calibró con la captura live (viento de ángulo ~2° → izquierda/arriba); si el
-  servidor cambia el signo, el primer tiro puede salir al revés y el aprendizaje
-  lo corrige en el siguiente. El viento vertical es pequeño en la captura y
-  falta validarlo con ángulos más verticales. La app Java conserva `AIRE = 0`.
+- **Viento**: la escala se aprende por móvil desde `s[4]` y arranca en
+  `b·5,41`; el primer tiro con viento de un móvil nuevo puede desviarse un poco
+  hasta que se aprende su escala. La convención de signo se calibró con la
+  captura live (viento de ángulo ~2° → izquierda/arriba); si el servidor cambia
+  el signo, el primer tiro puede salir al revés y el aprendizaje lo corrige en
+  el siguiente. La componente vertical depende de la precisión del ángulo del
+  `play` (`wind_angle`); si llega redondeado a grados enteros, la predicción
+  vertical puede quedar unos píxeles desviada. La app Java conserva `AIRE = 0`.
 - El **origen** medido depende de que `play.s[0]/s[1]` llegue redondeado a
   píxel; la MAD descarta secuencias incoherentes, pero conviene validar cada
   móvil en vivo. Armor no se auto-sustituye para no degradar el ajuste actual.

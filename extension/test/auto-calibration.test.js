@@ -475,15 +475,18 @@
     assert(profile.wind.unitSource === 'default', 'unidad por defecto');
   });
 
-  test('viento horizontal izquierdo con Armor (unidad por defecto)', function () {
+  test('viento horizontal izquierdo con Armor (escala por defecto)', function () {
     const cal = new api.AutoCalibration();
     cal.setWind({ power: 49, angle: 3.4 });
     const profile = cal.getProfile('Armor2D.png');
+    const scale = 0.76 * api.DEFAULT_WIND_UNIT;
     assert(profile.wind.active === true, 'activo');
     approx(profile.wind.b, 0.76, 1e-12, 'b');
-    approx(profile.wind.unit, 5.36, 1e-12, 'unidad');
-    approx(profile.wind.windX, -49 * 0.76 * 5.36, 1e-9, 'windX');
-    approx(profile.wind.vertAccel, 390 - 3 * 0.76 * 5.36, 1e-9, 'vertAccel');
+    approx(profile.wind.unit, scale, 1e-9, 'escala');
+    approx(profile.wind.windX,
+      -Math.cos(3.4 * Math.PI / 180) * 49 * scale, 1e-9, 'windX');
+    approx(profile.wind.vertAccel,
+      390 - Math.sin(3.4 * Math.PI / 180) * 49 * scale, 1e-9, 'vertAccel');
     assert(profile.wind.windX < 0, 'viento a la izquierda');
     assert(profile.wind.vertAccel < profile.gravity, 'viento hacia arriba');
   });
@@ -500,7 +503,7 @@
     assert(Math.abs(fox.windX) < Math.abs(armor.windX), 'Fox sufre menos');
   });
 
-  test('aprende unidad y signo de viento de un disparo live', function () {
+  test('aprende escala y signo de viento de un disparo live', function () {
     const cal = new api.AutoCalibration();
     const f = fixtures.wind[0];
     cal.setWind(f.wind);
@@ -508,12 +511,14 @@
     const result = cal.observePlay(playFor(f));
     assert(result.matched && result.calibrated, result.reason || 'sin calibrar');
     assert(result.delta.windLearned === true, 'aprendió viento');
-    approx(result.delta.windUnit, 5.397, 0.01, 'unidad aprendida');
+    approx(result.delta.windUnit,
+      Math.abs(-201) / (Math.cos(3.4 * Math.PI / 180) * 49), 0.01, 'escala aprendida');
     const profile = cal.getProfile('Armor2D.png');
-    approx(profile.wind.unit, 5.397, 0.01, 'unidad del perfil');
+    approx(profile.wind.unit,
+      Math.abs(-201) / (Math.cos(3.4 * Math.PI / 180) * 49), 0.01, 'escala del perfil');
     approx(profile.wind.windX, -201, 1, 'windX live');
     approx(profile.wind.vertAccel, 378, 1, 'vertAccel live');
-    assert(profile.wind.unitSource === 'measured', 'unidad medida');
+    assert(profile.wind.unitSource === 'measured', 'escala medida');
     assert(profile.wind.signX === -1, 'signo X');
     assert(profile.wind.signY === 1, 'signo Y');
     assert(profile.samples.wind === 1, 'muestra de viento');
@@ -521,7 +526,7 @@
       'origen medido del fixture');
   });
 
-  test('aprende la unidad de los 3 disparos live con viento (49/46/42)', function () {
+  test('aprende la escala de los 3 disparos live con viento (49/46/42)', function () {
     const cal = new api.AutoCalibration();
     fixtures.wind.forEach(function (f) {
       cal.setWind(f.wind);
@@ -531,7 +536,7 @@
         f.name + ': ' + (result.reason || 'sin calibrar'));
     });
     const profile = cal.getProfile('Armor2D.png');
-    approx(profile.wind.unit, 5.41, 0.05, 'unidad live');
+    approx(profile.wind.unit, 4.11, 0.06, 'escala live');
     approx(profile.wind.windX, -173, 4, 'último windX');
     approx(profile.wind.vertAccel, 382, 3, 'último vertAccel');
     assert(profile.samples.wind === 3, '3 muestras');
@@ -539,7 +544,7 @@
       'powerScale live ' + profile.powerScale);
   });
 
-  test('un viento casi vertical aprende la unidad de la componente Y', function () {
+  test('un viento casi vertical aprende la escala de la componente Y', function () {
     const cal = new api.AutoCalibration();
     const wind = { power: 30, angle: 89 };
     cal.setWind(wind);
@@ -554,8 +559,9 @@
     }));
     assert(result.matched && result.calibrated, result.reason || 'sin calibrar');
     const profile = cal.getProfile('Armor2D.png');
-    assert(profile.wind.unitSource === 'measured', 'unidad medida');
-    approx(profile.wind.unit, (390 - 360) / (Math.round(Math.sin(89 * Math.PI / 180) * 30) * 0.76), 1e-9, 'unidad Y');
+    assert(profile.wind.unitSource === 'measured', 'escala medida');
+    approx(profile.wind.unit,
+      (390 - 360) / (Math.sin(89 * Math.PI / 180) * 30), 1e-9, 'escala Y');
   });
 
   root.__DS_TEST_RESULTS = results;

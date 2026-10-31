@@ -20,7 +20,7 @@
     gravity: 390,
     origin: { a: 20.45, c: 25.83 },
     wind: {
-      active: false, power: 0, angle: 0, b: 1, unit: 5.36,
+      active: false, power: 0, angle: 0, b: 1, unit: 5.41,
       unitSource: 'default', windX: 0, windY: 0, vertAccel: 390,
     },
   };

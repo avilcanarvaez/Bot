@@ -866,16 +866,38 @@ implícito ≈ 3,4°: izquierda/arriba, que fija la convención por defecto.
 
 - Auto-calibración **37/37** (7 nuevas): tabla `b` de 21 móviles; viento 0;
   Armor con viento 49/3,4°; escala por `b` (Boomer/Fox); aprendizaje de
-  unidad/signos desde `s=[331,15,78,427,−201,378]`; los tres disparos live
-  49/46/42 (unidad ≈ 5,41); viento casi vertical.
+  escala/signos desde `s=[331,15,78,427,−201,378]`; los tres disparos live
+  49/46/42 (escala ≈ 4,11); viento casi vertical.
 - Integración **64/64** (8 nuevas): `play` con viento 14 izquierda, perfil y
   panel actualizados, potencia de frente mayor y trayectoria con viento que
   termina en el destino.
 - `manifest.json` → **0.2.0**.
 
+### Refinamiento v0.2.1 (2026-10-31)
+
+La validación con viento activo mostró un desvío pequeño. Causas corregidas:
+
+- **Flotantes, no enteros.** v0.2.0 truncaba `cos/sin(ángulo)·power` con
+  `round` (herencia del `parseInt` del aimbot). El servidor usa flotantes: la
+  componente vertical de la captura (`windYUp = 12`) solo cierra con
+  `sin(3,4°)·49 = 2,91`, no con `round` (=3 → 12,3) ni con `parseInt` (=2 → 8,2).
+- **Escala por móvil, no global.** v0.2.0 aprendía una unidad global que se
+  contamina al cambiar de móvil. Ahora `windScales` aprende la escala de cada
+  móvil desde `s[4]` (semilla `b · 5,41`; Armor ≈ 4,11), de modo que el primer
+  tiro de un móvil usa `b` y los siguientes corrigen el factor real.
+- `DEFAULT_WIND_UNIT` pasa de `5,36` a `5,41`.
+- El page-hook expone `window.__DS_WIND_LOG__` para validar en vivo sin DevTools
+  (`copy(JSON.stringify(window.__DS_WIND_LOG__))`).
+
+Pruebas: **37/37** auto-calibración y **64/64** integración (mismo conteo, solo
+se re-expresaron las expectativas de la escala). `manifest.json` → **0.2.1**.
+
 ### Pendiente
 
-- Validar en vivo con viento real y varios móviles (Armor, Boomer, Fox,
-  Dragon2); la captura live del viento es solo de Armor.
-- Probar un viento claramente vertical para confirmar el signo y la unidad Y.
+- Validar en vivo con viento real y varios móviles (Armor, Boomer, Lightning);
+  la captura live del viento es solo de Armor. `window.__DS_WIND_LOG__` recoge
+  `mobile`, `windPower`, `windAngle`, `s4`, `s5`, `unit`, `signX`/`signY`.
+- Comprobar si `wind_angle` (índice 14) trae decimales: si llega como entero en
+  grados, la componente vertical queda desviada unos píxeles (la horizontal no
+  se afecta).
 - La app Java de escritorio conserva `AIRE = 0`; no mezclar constantes.

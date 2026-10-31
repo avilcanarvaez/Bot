@@ -554,24 +554,26 @@ quedan como fallback y el perfil se auto-calibra (§16.12). Detalle en §16.9.
 
 #### Modelo
 
-El cliente/aimbot usa `(cos, sin) · wind_power · b`, con `b` por móvil. La
-extensión replica esa idea y aprende la **unidad** de viento del propio servidor:
+El cliente/aimbot usa `(cos, sin) · wind_power · b` (con `parseInt`, aproximado).
+La extensión replica la **estructura** pero usa flotantes (el servidor no trunca
+a entero) y aprende la **escala de viento por móvil** desde `s[4]`:
 
 ```text
 rad      = radians(wind_angle)          // play[14], ya incluye +180
-cosPart  = round(cos(rad) · wind_power)
-sinPart  = round(sin(rad) · wind_power)
+cosPart  = cos(rad) · wind_power        // flotante, sin redondear
+sinPart  = sin(rad) · wind_power
 
-windX    = signX · cosPart · b · unidad   // +derecha
-windYUp  = signY · sinPart · b · unidad   // +arriba
-vertAccel = gravedadBase − windYUp        // +abajo (pantalla)
+escala   = mediana(s[4] / cosPart)      // por móvil, px/s² por wind_power
+windX    = signX · cosPart · escala     // +derecha
+windYUp  = signY · sinPart · escala     // +arriba
+vertAccel = gravedadBase − windYUp      // +abajo (pantalla)
 ```
 
 - `b`: tabla del cliente (`MOBILE_B`): Armor `0,76`, Boomer `1,39`, Fox `0,61`,
-  Dragon2 `0,74`, etc. Cubre los **21 móviles**.
-- `unidad`: mediana de las muestras aprendidas de `s[4]`; por defecto
-  **5,36** (escala observada en vivo). Se aprende con
-  `unidadX = s[4] / (cosPart · b)`, dentro de `[1, 20]`.
+  Dragon2 `0,74`, etc. Cubre los **21 móviles**. Solo es la **semilla** de la
+  escala mientras el móvil no tiene muestras (`escala = b · 5,41`).
+- `escala`: mediana de las muestras por móvil de `s[4] / cosPart`, dentro de
+  `[0,5, 25]`. La semilla por defecto es `b · 5,41` (Armor ≈ `4,11`).
 - `signX`/`signY`: se aprenden del primer disparo con viento para absorber la
   convención del ángulo del servidor. Por defecto `signX = −1`,
   `signY = +1`: con `play[14] ≈ 2°` el viento sopla a la **izquierda** y
@@ -579,6 +581,9 @@ vertAccel = gravedadBase − windYUp        // +abajo (pantalla)
 - La gravedad base **no** se toma de `s[5]` si el disparo tuvo viento: se usa la
   mediana de los tiros sin viento o la predicción por móvil (§16.17). El
   `s[5]` con viento es `gravedad − windYUp`, no la gravedad de la sala.
+- El servidor usa la **misma escala** para las componentes horizontal y vertical
+  (la captura live da ≈ `4,11` en ambas); por eso una sola `escala` por móvil
+  cubre los dos ejes.
 
 #### Potencia y trayectoria
 
@@ -610,22 +615,25 @@ integración).
 ```jsonc
 "wind": {
   "active": true, "power": 14, "angle": 2,
-  "b": 0.76, "unit": 5.36, "unitSource": "default" | "measured",
+  "b": 0.76, "unit": 4.11, "unitSource": "default" | "measured",
   "signX": -1, "signY": 1,
-  "cosPart": 14, "sinPart": 0,
+  "cosPart": 13.99, "sinPart": 0.49,
   "windX": -57.0, "windY": 0, "vertAccel": 402, "gravity": 402
 }
 ```
 
+> `unit` es la **escala aplicada** del móvil (px/s² por `wind_power`), no una
+> constante global; `b` es la semilla del aimbot.
+
 El panel añade la fila **VIENTO** (`← 14`, `→ 14`, `← 14 ↑`) y los atributos
 `data-wind-power`, `data-wind-angle`, `data-wind-x`, `data-vert-accel`,
 `data-wind-b`, `data-wind-unit`, `data-wind-source` y `data-wind-active`.
-`resetPhysics()` borra el viento y las muestras de unidad al cambiar de sala.
+`resetPhysics()` borra el viento y las escalas por móvil al cambiar de sala.
 
 #### Pruebas
 
 - Auto-calibración **37/37**: tabla `b` de los 21 móviles, viento 0, viento
-  horizontal de Armor, escala por `b` (Boomer/Fox), aprendizaje de unidad y
+  horizontal de Armor, escala por `b` (Boomer/Fox), aprendizaje de escala y
   signos desde un `s` live (`−201/378`), los tres disparos live con viento
   (49/46/42) y un viento casi vertical.
 - Integración **64/64**: el `play` con viento 14 izquierda actualiza el perfil y
@@ -638,10 +646,15 @@ El panel añade la fila **VIENTO** (`← 14`, `→ 14`, `← 14 ↑`) y los atri
   izquierda, `s[4]` negativo y `s[5] < gravedad`). Si el servidor cambia el
   signo, el primer tiro con viento puede salir al revés; el aprendizaje lo
   corrige en el siguiente.
-- La unidad de viento se aprende de `s[4]`; el primer tiro con viento de una
-  sala nueva usa 5,36. La desviación observada es ~1 %.
-- El viento vertical es pequeño en la captura (`sinPart` 2–3); se modela, pero
-  falta validarlo con ángulos más verticales en vivo.
+- La escala de viento se aprende **por móvil** desde `s[4]`; el primer tiro con
+  viento de un móvil nuevo usa la semilla `b · 5,41` y puede desviarse hasta
+  que se aprende. Si el `b` del aimbot no es exacto para ese móvil, el primer
+  tiro es el que más se desvía y los siguientes convergen.
+- La **componente vertical** depende de la precisión de `wind_angle` (índice 14
+  del `play`). Si llega como entero en grados, `sin(ángulo)·power` pierde la
+  fracción y la predicción vertical queda desviada unos píxeles; la horizontal
+  apenas se afecta porque `cos` es casi plano cerca de 0°. Falta confirmar en
+  vivo si `wind_angle` trae decimales.
 - El viento del primer turno solo se conoce si el servidor envió un `play`
   previo. Sin él, se usa 0 hasta el primer `play`.
 
@@ -2024,9 +2037,11 @@ viento (`s[4] = −201/−189/−173`, `s[5] = 378/378/382` con `wind_power`
   al `game_shoot` pendiente. El page-hook lee `play[13]/[14]` después de
   emparejar el disparo y actualiza el viento para el turno siguiente.
 - `MOBILE_B` contiene el factor `b` de los 21 móviles (Armor `0,76`, Boomer
-  `1,39`, Fox `0,61`, Dragon2 `0,74`, …).
+  `1,39`, Fox `0,61`, Dragon2 `0,74`, …), usado solo como **semilla**.
 - `windEffect()` convierte `(wind_power, wind_angle)` en `windX` y `vertAccel`
-  con la unidad de viento aprendida de `s[4]` (por defecto `5,36`).
+  usando flotantes `cos(ángulo)·power` / `sin(ángulo)·power` (sin truncar) y la
+  **escala de viento por móvil** aprendida de `s[4]` (semilla `b · 5,41`;
+  Armor ≈ `4,11` px/s² por unidad de `wind_power`).
 - Los signos se aprenden del primer disparo con viento; por defecto
   `signX = −1`, `signY = +1` (viento de ángulo 2° → izquierda/arriba).
 - La gravedad base se separa del viento: `s[5]` solo actualiza gravedad si
@@ -2040,40 +2055,66 @@ viento (`s[4] = −201/−189/−173`, `s[5] = 378/378/382` con `wind_power`
 #### Evidencia live
 
 Los tres disparos con viento de la captura del 2026-10-20 (Armor, `b=0,76`)
-permiten estimar la unidad:
+permiten estimar la escala por móvil (`s[4] / cos(ángulo)·power`):
 
-| `wind_power` | `s[4]` | `s[5]` | `windYUp = 390 − s[5]` | unidad X |
+| `wind_power` | `s[4]` | `s[5]` | `windYUp = 390 − s[5]` | escala X |
 |---:|---:|---:|---:|---:|
-| 49 | −201 | 378 | 12 | 5,40 |
-| 46 | −189 | 378 | 12 | 5,41 |
-| 42 | −173 | 382 | 8 | 5,42 |
+| 49 | −201 | 378 | 12 | 4,11 |
+| 46 | −189 | 378 | 12 | 4,12 |
+| 42 | −173 | 382 | 8 | 4,13 |
 
-La unidad X (≈5,41) y la vertical (≈5,26) son coherentes con la escala 5,36.
-El ángulo implícito es ≈3,4°: `cos` negativo (izquierda) y `sin` positivo
-(arriba), de ahí la convención por defecto.
+La escala horizontal (≈4,11) coincide con la vertical (`windYUp / sin(ángulo)·power`
+≈ 4,11) cuando se usan **flotantes sin truncar**: el ángulo implícito es ≈3,4°
+y el redondeo a entero rompería la componente vertical (la captura cierra con
+`sinPart` flotante, no con `parseInt`/`round`). De ahí la semilla `b · 5,41` y
+el aprendizaje por móvil de la escala.
 
 #### Pruebas
 
 - **37/37** auto-calibración. Nuevas: tabla `b` de 21 móviles; viento 0;
-  Armor con viento 49/3,4° (`windX ≈ −199,6`, `vertAccel ≈ 377,8`); escala por
-  `b` (Boomer 1,39 / Fox 0,61); aprendizaje de unidad/signos desde
+  Armor con viento 49/3,4° (`windX ≈ −201,1`, `vertAccel ≈ 378,1`); escala por
+  `b` (Boomer 1,39 / Fox 0,61); aprendizaje de escala/signos desde
   `s = [331,15,78,427,−201,378]` (`windX ≈ −201`, `vertAccel ≈ 378`); los tres
-  disparos live 49/46/42 (unidad ≈ 5,41); viento casi vertical.
+  disparos live 49/46/42 (escala ≈ 4,11); viento casi vertical.
 - **64/64** integración. Nuevo: un `play` con viento 14 izquierda actualiza el
   snapshot/perfil, el panel muestra `VIENTO`, la potencia de frente sube y la
   trayectoria con viento termina en el destino.
 
 #### Límites
 
-- Falta validar en vivo con viento real y varios móviles (Boomer/Fox/Dragon2);
+- Falta validar en vivo con viento real y varios móviles (Boomer/Fox/Lightning);
   la lógica y los fixtures están cubiertos, pero la captura live del viento es
-  de Armor.
-- El primer tiro con viento de una sala nueva usa la unidad 5,36 y el signo por
-  defecto; el aprendizaje lo corrige con el primer `s[4]`.
-- El viento vertical es pequeño en la captura; falta un caso live con ángulo
-  claramente vertical.
+  de Armor. El page-hook expone `window.__DS_WIND_LOG__` para recoger esa
+  evidencia en la consola del juego.
+- El primer tiro con viento de un móvil nuevo usa la semilla `b · 5,41` y puede
+  desviarse hasta aprender la escala; si el `b` del aimbot no es exacto, el
+  primer tiro es el que más se desvía y los siguientes convergen.
+- La **componente vertical** depende de la precisión de `wind_angle` (índice 14
+  del `play`). Si llega redondeado a grados enteros, `sin(ángulo)·power` pierde
+  la fracción y la predicción vertical queda desviada unos píxeles; la
+  horizontal apenas se afecta (`cos` es plano cerca de 0°). Falta confirmar en
+  vivo si `wind_angle` trae decimales.
 - La app Java de escritorio conserva `AIRE = 0`; este cambio es solo de la
   extensión web.
+
+### 16.21 Refinamiento del viento (2026-10-31, v0.2.1)
+
+La validación con viento activo mostró un desvío pequeño: el modelo v0.2.0
+truncaba `cos/sin(ángulo)·power` a entero (herencia del `parseInt` del aimbot) y
+aprendía una unidad **global** en vez de por móvil. El servidor usa **flotantes**
+y el factor de viento cambia con el móvil. Cambios:
+
+- `windEffect`/`learnWind` usan `cos(ángulo)·power` y `sin(ángulo)·power` **sin
+  truncar**; la componente vertical de la captura live (12 en vez de 12,3) solo
+  cierra con flotantes.
+- La escala de viento se aprende **por móvil** (`windScales`, semilla
+  `b · 5,41`), de modo que cada móvil corrige su propio factor desde `s[4]` en
+  vez de compartir una unidad global que se contamina al cambiar de móvil.
+- `DEFAULT_WIND_UNIT` pasa de `5,36` a `5,41` (la escala de Armor es `4,11`).
+- El page-hook añade `window.__DS_WIND_LOG__` para validar en vivo sin DevTools.
+
+Pruebas: **37/37** auto-calibración y **64/64** integración (sin cambios de
+conteo; solo se re-expresaron las expectativas de la escala).
 
 ---
 

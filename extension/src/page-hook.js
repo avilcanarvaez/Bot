@@ -38,6 +38,19 @@
   // Comparación entre el ángulo mostrado y el que el juego envió en el último
   // disparo real; sirve para diagnosticar desvíos sin abrir DevTools.
   let lastAimCheck = null;
+  // Registro de disparos con viento, para validar el modelo en vivo. Se expone
+  // como `window.__DS_WIND_LOG__` para poder copiarlo desde la consola del
+  // juego con `copy(JSON.stringify(window.__DS_WIND_LOG__))`. No incluye token
+  // de sesión ni datos del rival.
+  const windLog = [];
+  try {
+    Object.defineProperty(window, '__DS_WIND_LOG__', {
+      get: function () { return windLog; },
+      configurable: true,
+    });
+  } catch (error) {
+    window.__DS_WIND_LOG__ = windLog;
+  }
 
   function getApi() {
     return window.DragonShotAutoCalibration || null;
@@ -298,6 +311,24 @@
     if (!result) {
       postSnapshot();
       return;
+    }
+    if (result.delta && result.delta.wind && result.delta.wind.power > 0) {
+      // Guarda solo lo imprescindible para validar el viento en vivo: móvil,
+      // viento anunciado y las aceleraciones reales `s[4]`/`s[5]`. No se guarda
+      // posición del rival ni token de sesión.
+      windLog.push({
+        t: Date.now(),
+        mobile: mobileNameOf(me) || 'unknown',
+        windPower: result.delta.wind.power,
+        windAngle: result.delta.wind.angle,
+        s4: result.delta.windX,
+        s5: result.delta.vertAccel,
+        unit: result.delta.windUnit,
+        unitSource: result.delta.windUnitSource,
+        signX: result.delta.windSignX,
+        signY: result.delta.windSignY,
+      });
+      if (windLog.length > 200) windLog.shift();
     }
     post('play', {
       matched: !!result.matched,
