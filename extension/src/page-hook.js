@@ -64,6 +64,21 @@
   } catch (error) {
     window.__DS_SHOT_LOG__ = shotLog;
   }
+  // Diagnóstico del capturador de disparos: registra la razón por la que cada
+  // pointerup no se convirtió en disparo. Se expone como `__DS_SHOT_DEBUG__`.
+  const shotDebug = [];
+  try {
+    Object.defineProperty(window, '__DS_SHOT_DEBUG__', {
+      get: function () { return shotDebug; },
+      configurable: true,
+    });
+  } catch (error) {
+    window.__DS_SHOT_DEBUG__ = shotDebug;
+  }
+  function logShotDebug(reason, extra) {
+    shotDebug.push(Object.assign({ t: Date.now(), reason: reason }, extra || {}));
+    if (shotDebug.length > 200) shotDebug.shift();
+  }
 
   function getApi() {
     return window.DragonShotAutoCalibration || null;
@@ -309,6 +324,15 @@
     const cal = getCalibration();
     const me = getMe();
     const result = cal ? cal.observePlay(raw) : null;
+    if (result && result.matched) {
+      logShotDebug('play-resultado', {
+        matched: !!result.matched,
+        calibrated: !!result.calibrated,
+        reason: result.reason || null,
+        powerScale: result.delta ? result.delta.powerScale : null,
+        s: result.delta ? result.delta.s : null,
+      });
+    }
     // El `play` trae el viento del **siguiente** turno. Se aplica después de
     // emparejar el disparo (que usa el viento guardado en `onShoot`) y antes
     // de publicar el snapshot, para que el panel y la potencia ya lo usen.
@@ -931,6 +955,14 @@
   function onPointerDown(event) {
     if (selectionActive || event.button !== 0 || event.ctrlKey || isOverlayEvent(event)) {
       shotPointer = null;
+      if (event.button === 0) {
+        logShotDebug('down-rechazado', {
+          selectionActive: selectionActive,
+          ctrl: event.ctrlKey,
+          overlay: isOverlayEvent(event),
+          target: event.target && (event.target.id || event.target.className || event.target.tagName),
+        });
+      }
       return;
     }
     shotPointer = {
@@ -950,26 +982,59 @@
   function onPointerUp(event) {
     if (selectionActive || event.button !== 0 || event.ctrlKey || isOverlayEvent(event)) {
       shotPointer = null;
+      if (event.button === 0) {
+        logShotDebug('up-rechazado-guarda-inicial', {
+          selectionActive: selectionActive,
+          ctrl: event.ctrlKey,
+          overlay: isOverlayEvent(event),
+        });
+      }
       return;
     }
     const down = shotPointer;
     shotPointer = null;
-    if (!down) return;
-    if (down.id != null && event.pointerId != null && down.id !== event.pointerId) return;
-    if (Date.now() - down.at > 8000) return;
+    if (!down) {
+      logShotDebug('up-sin-down');
+      return;
+    }
+    if (down.id != null && event.pointerId != null && down.id !== event.pointerId) {
+      logShotDebug('up-pointerId-distinto', { downId: down.id, upId: event.pointerId });
+      return;
+    }
+    if (Date.now() - down.at > 8000) {
+      logShotDebug('up-tiempo-excedido', { ms: Date.now() - down.at });
+      return;
+    }
 
     const snap = snapshot();
-    if (!snap || !snap.ok || !snap.me || !snap.me.isTurn) return;
-    if (!pointerInsideCanvas(event, snap)) return;
+    if (!snap || !snap.ok || !snap.me || !snap.me.isTurn) {
+      logShotDebug('up-sin-snapshot-o-turno', {
+        ok: snap && snap.ok,
+        reason: snap && snap.reason,
+        isTurn: snap && snap.me && snap.me.isTurn,
+      });
+      return;
+    }
+    if (!pointerInsideCanvas(event, snap)) {
+      logShotDebug('up-fuera-canvas', {
+        x: event.clientX, y: event.clientY,
+        rect: snap.canvas && snap.canvas.rect,
+      });
+      return;
+    }
 
     const power = numberOr(snap.power && snap.power.current, 0);
-    if (!(power >= MIN_SHOT_POWER && power <= 400)) return;
+    if (!(power >= MIN_SHOT_POWER && power <= 400)) {
+      logShotDebug('up-potencia-invalida', { power: power, min: MIN_SHOT_POWER });
+      return;
+    }
 
     const moved = down.x != null && down.y != null &&
       (Math.abs(event.clientX - down.x) + Math.abs(event.clientY - down.y) > 3);
     // La barra conserva la última potencia. Un clic sin arrastre no es un
     // disparo y no debe crear una muestra pendiente.
     if (lastShotPower != null && Math.abs(power - lastShotPower) < 0.5 && !moved) {
+      logShotDebug('up-clic-sin-arrastre', { power: power, lastShotPower: lastShotPower, moved: moved });
       return;
     }
 
@@ -992,8 +1057,9 @@
     };
     try {
       onShoot(raw, raw);
+      logShotDebug('up-disparo-enviado', { power: Math.round(power) });
     } catch (error) {
-      // Un clic del juego que no sea un disparo no debe romper nada.
+      logShotDebug('up-error-onShoot', { error: String(error && error.message || error) });
     }
   }
 
