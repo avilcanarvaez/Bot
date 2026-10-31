@@ -10,12 +10,12 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 37/37 y 64/64; calibración por móvil, cobertura de los 21 móviles, origen por móvil con tabla `aim` + auto-calibración (v0.1.7) y **viento por móvil** (v0.2.1, escala por móvil aprendida de `s[4]`), validación live pendiente. |
+| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 37/37 y 64/64; calibración por móvil, cobertura de los 21 móviles, origen por móvil con tabla `aim` + auto-calibración (v0.1.7), **origen de Boomer corregido** (v0.2.2) y **viento por móvil** (v0.2.1, escala por móvil aprendida de `s[4]`), validación live pendiente. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
 Invariante de la **app Java de escritorio**: **`AIRE = 0`**. La **extensión web
-v0.2.1** ya aplica el viento (`wind_power`/`wind_angle`) con una escala por móvil
+v0.2.2** ya aplica el viento (`wind_power`/`wind_angle`) con una escala por móvil
 aprendida de `s[4]` (semilla `b · 5,41`); no se mezclan las constantes de ambos
 modelos.
 

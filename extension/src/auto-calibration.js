@@ -46,6 +46,9 @@
   // Armor: 33·(cos 52°, sin 52°) = (20,32, 26,00) frente a (20,45, 25,83).
   // Así el disparo sale del mismo punto que el inicio del ángulo de cada móvil
   // desde el primer tiro, sin esperar a la auto-calibración.
+  // Boomer usa el mismo vector que Armor (52°, 33): su cañón está delante,
+  // no detrás. La tabla del aimbot lo copiaba de Aduka/NAK ([130, 40]) y
+  // dejaba el cañón ~25 px por detrás (validado en vivo como incorrecto).
   const MOBILE_AIM = Object.freeze({
     armor: Object.freeze([52, 33]),
     ice: Object.freeze([58, 50]),
@@ -63,7 +66,7 @@
     trico: Object.freeze([51, 51]),
     mage: Object.freeze([51, 51]),
     turtle: Object.freeze([51, 51]),
-    boomer: Object.freeze([130, 40]),
+    boomer: Object.freeze([52, 33]),
     electrico: Object.freeze([52, 33]),
     frog: Object.freeze([52, 33]),
     kalsiddon: Object.freeze([52, 33]),

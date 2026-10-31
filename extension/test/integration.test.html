@@ -287,12 +287,11 @@
           boomerSnap.profile.mobile === 'boomer' &&
           Math.abs(boomerSnap.profile.gravity - 335) < 1e-9, boomerSnap.profile);
         const boomerPower = Number(powerPanelEl.dataset.power);
-        // Con el origen propio de Boomer (detrás/arriba) la distancia es algo
-        // mayor; la gravedad más baja compensa y la potencia queda cerca de la
-        // de Armor, pero calculada con su propio perfil.
+        // Boomer usa el origen delante/arriba (igual que Armor) y su gravedad
+        // más baja: para el mismo destino pide MENOS potencia que Armor.
         assert('Boomer calcula su propia potencia',
-          boomerPower > 0 && boomerPower !== armorPower &&
-          Math.abs(boomerPower - armorPower) <= 10,
+          boomerPower > 0 && boomerPower < armorPower &&
+          Math.abs(boomerPower - armorPower) <= 20,
           { armorPower: armorPower, boomerPower: boomerPower });
         assert('panel marca PREDICHO para Boomer',
           panelText().indexOf('PREDICHO') >= 0, panelText());
@@ -303,20 +302,20 @@
           powerPanelEl.dataset);
 
         // Desde el primer tiro el origen debe salir del vector aim de Boomer
-        // (130°, 40), no del de Armor.
+        // (52°, 33), delante como Armor, no del de Aduka/NAK.
         assert('Boomer arranca con su origen aim',
           boomerSnap.profile.originSource === 'predicted',
           boomerSnap.profile);
         assert('snapshot usa el origen aim de Boomer',
-          Math.abs(boomerSnap.origin.x - 759.45) < 1 &&
-          Math.abs(boomerSnap.origin.y - 96.22) < 1, boomerSnap.origin);
+          Math.abs(boomerSnap.origin.x - 804.83) < 1 &&
+          Math.abs(boomerSnap.origin.y - 87.19) < 1, boomerSnap.origin);
 
-        // Tres disparos con la boca del cañón en (761, 95), cerca del vector
+        // Tres disparos con la boca del cañón en (805, 87), cerca del vector
         // aim: el origen medido debe quedar estable y refinar el perfil.
         const powerBar2 = document.getElementById('powerBar');
         const boomerPlay = function (v0) {
           return [8, 0, 793, 118, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            [{ s: [761, 95, 153, v0, 0, 335], time: 1175 }]];
+            [{ s: [805, 87, 153, v0, 0, 335], time: 1175 }]];
         };
         for (let i = 0; i < 3; i++) {
           powerBar2.style.width = (196 + i) + 'px';
@@ -332,14 +331,14 @@
           boomerOrigin.originSource === 'measured' &&
           boomerOrigin.originCalibrated === true, boomerOrigin);
         assert('origen medido de Boomer',
-          Math.abs(boomerOrigin.origin.a + 23.88) < 1 &&
-          Math.abs(boomerOrigin.origin.c - 31.35) < 1, boomerOrigin.origin);
+          Math.abs(boomerOrigin.origin.a - 20.54) < 1 &&
+          Math.abs(boomerOrigin.origin.c - 26.14) < 1, boomerOrigin.origin);
         assert('panel publica el origen',
           powerPanelEl.dataset.originSource === 'measured', powerPanelEl.dataset);
         const boomerOriginSnap = window.__DS_EXT_HOOK__.snapshot();
         assert('snapshot usa el origen medido',
-          Math.abs(boomerOriginSnap.origin.x - 761) < 1 &&
-          Math.abs(boomerOriginSnap.origin.y - 95) < 1, boomerOriginSnap.origin);
+          Math.abs(boomerOriginSnap.origin.x - 805) < 1 &&
+          Math.abs(boomerOriginSnap.origin.y - 87) < 1, boomerOriginSnap.origin);
 
         setPlayer({
           mobile: 'Dragon22D.png',

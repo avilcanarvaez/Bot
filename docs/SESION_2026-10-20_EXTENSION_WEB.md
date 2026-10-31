@@ -901,3 +901,21 @@ se re-expresaron las expectativas de la escala). `manifest.json` → **0.2.1**.
   grados, la componente vertical queda desviada unos píxeles (la horizontal no
   se afecta).
 - La app Java de escritorio conserva `AIRE = 0`; no mezclar constantes.
+
+### Origen de Boomer corregido (2026-10-31, v0.2.2)
+
+Pruebas live con Boomer: el cañón quedaba ~25 px **por detrás** del centro. La
+causa era la semilla `MOBILE_AIM.boomer = [130°, 40]`, copiada de Aduka/NAK en
+la tabla del aimbot. El cañón de Boomer está **delante**, como Armor. Cambios:
+
+- `MOBILE_AIM.boomer` pasa de `[130, 40]` (`a=−25,71, c=30,64`) a `[52, 33]`
+  (`a=20,32, c=26,00`), igual que Armor.
+- Con la semilla delantera, la auto-calibración ya no rechaza la medición real
+  (queda dentro de `maxOriginSeedDelta = 8`) y afina el origen exacto tras 3
+  muestras estables.
+- Pruebas: **37/37** auto-calibración y **64/64** integración (Boomer arranca
+  delante y, para el mismo destino, pide menos potencia que Armor por su
+  gravedad más baja). `manifest.json` → **0.2.2**.
+
+Pendiente: confirmar en vivo que el disparo de Boomer sale ahora del cañón
+delantero y que la auto-calibración refina el origen exacto.

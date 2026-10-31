@@ -1946,18 +1946,20 @@ medido en vivo. Se usa como **semilla** para los 21 móviles:
 
 | Móvil | `aim` | `a` | `c` |
 | --- | --- | ---: | ---: |
-| Armor / Eléctrico / Frog / Kalsiddon / Grub | 52°, 33 | 20,32 | 26,00 |
+| Armor / Boomer / Eléctrico / Frog / Kalsiddon / Grub | 52°, 33 | 20,32 | 26,00 |
 | Ice / Bigfoot / Dragon / Dragon2 | 58°, 50 | 26,50 | 42,40 |
 | Lightning | 58°, 44 | 23,32 | 37,31 |
 | JD | 68°, 45 | 16,86 | 41,72 |
 | Asate | 40°, 30 | 22,98 | 19,28 |
 | Random / Knight / Trico / Mage / Turtle | 51°, 51 | 32,10 | 39,63 |
 | Fox | 30°, 44 | 38,11 | 22,00 |
-| Aduka / NAK / Boomer | 130°, 40 | −25,71 | 30,64 |
+| Aduka / NAK | 130°, 40 | −25,71 | 30,64 |
 
 Aduka y NAK tienen un `adukafix` especial en el cliente que no se replica; su
 primer tiro puede quedar algo desplazado hasta que la auto-calibración lo
-corrija. Boomer no lleva ese fix: su cañón nace detrás/arriba del centro.
+corrija. **Boomer usa el vector delantero `52°, 33`** (igual que Armor): su
+cañón está delante, no detrás. La tabla del aimbot lo copiaba de Aduka/NAK
+(`130°, 40`) y dejaba el cañón ~25 px por detrás; se corrigió en v0.2.2.
 
 #### Aplicación
 
@@ -1996,15 +1998,15 @@ El panel añade el origen al tooltip de calibración (`origen medido (n)`,
 - Auto-calibración **30/30**. Nuevas:
   - La tabla `aim` siembra los 21 móviles y el vector de Armor coincide con el
     origen live (distancia < 0,5).
-  - Boomer arranca con `(a=−25,71, c=30,64)` (`predicted`) y tras 3 muestras
-    estables cerca de su `aim` aplica la mediana (`measured`).
+  - Boomer arranca con `(a=20,32, c=26,00)` (`predicted`, igual que Armor) y
+    tras 3 muestras estables cerca de su `aim` aplica la mediana (`measured`).
   - Con 2 muestras sigue el vector `aim`; una secuencia inestable (MAD 20)
     también cae al `aim`.
-  - Una medición estable pero a ~58 unidades del `aim` **no** se aplica
+  - Una medición estable pero a ~46 unidades del `aim` **no** se aplica
     (guarda `maxOriginSeedDelta = 8`); `calibrateOrigin: true` sí la fuerza.
   - Armor conserva el valor ajustado aunque acumule muestras (`tuned`).
 - Integración **56/56**. Nuevo: Boomer usa su origen `aim` desde el primer
-  snapshot; tras 3 disparos con la boca en `(761, 95)` el origen medido refina
+  snapshot; tras 3 disparos con la boca en `(805, 87)` el origen medido refina
   el perfil y el snapshot usa ese punto; el panel publica `data-origin-source`.
 
 #### Límites
@@ -2013,11 +2015,10 @@ El panel añade el origen al tooltip de calibración (`origen medido (n)`,
   un sprite, la auto-calibración lo corrige tras 3 muestras estables.
 - `play.s[0]/s[1]` llega redondeado a píxel; la MAD absorbe el ruido normal,
   pero una secuencia con `body` mal resuelto se descarta hasta estabilizarse.
-- Aduka/NAK (`adukafix`) y Boomer son los casos más sensibles; falta validarlos
-  en vivo móvil por móvil.
-- Con el origen propio de Boomer (detrás/arriba) la distancia al destino es algo
-  mayor; su gravedad más baja compensa y la potencia queda cerca de la de
-  Armor, no siempre por debajo.
+- Aduka/NAK (`adukafix`) siguen siendo los casos más sensibles; falta validarlos
+  en vivo. Boomer ya está corregido (delante, igual que Armor).
+- Con el origen propio de Boomer (delante/arriba) y su gravedad más baja, la
+  potencia necesaria es **menor** que la de Armor para el mismo destino.
 
 ---
 
