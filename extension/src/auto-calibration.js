@@ -46,6 +46,9 @@
     boomer: 0.87675,
   });
 
+  // Gravedad LIVE de Boomer: tres disparos con aire 0 dieron s[5] = 100.
+  const TUNED_GRAVITIES = Object.freeze({ boomer: 100 });
+
   // Boca del cañón por móvil en el marco local del cuerpo: `[ángulo, radio]`
   // con 0° = horizontal hacia delante y positivo hacia arriba. Es la tabla
   // `aim` del cliente (helper.js:690-699) y coincide con el origen live de
@@ -648,9 +651,15 @@
      * depender de la convención de la versión del cliente. El valor por
      * defecto es el observado en vivo: viento a la izquierda con ángulo ~2°.
      */
-    windSignX() {
+    windSignX(mobile) {
       const sample = median(this.windSamplesX);
-      if (sample === null || sample === 0) return -1;
+      if (sample === null || sample === 0) {
+        // En Boomer, el viento live a 200° dio s4<0 con cos(200°)<0:
+        // la convención inicial correcta es +1.
+        const key = mobile ? normalizeMobile(mobile)
+          : (this.last && this.last.shot ? mobileKey(this.last.shot.mobile) : null);
+        return key === 'boomer' ? 1 : -1;
+      }
       return sample < 0 ? -1 : 1;
     }
 
@@ -672,6 +681,9 @@
       const samples = this.windScales.get(key);
       const scale = samples && samples.length ? median(samples) : null;
       if (scale !== null) return scale;
+      // Boomer live: s4/cos(angle)/power ≈ 5,4. No aplicar la relación de
+      // Armor con gravedad: en Boomer el servidor conserva esta escala.
+      if (key === 'boomer') return 5.41;
       const g = Number(gravity) || DEFAULT_PROFILE.gravity;
       return g * WIND_GRAVITY_RATIO;
     }
@@ -701,7 +713,7 @@
       const g = Number(gravity) || DEFAULT_PROFILE.gravity;
       const active = !!(wind && wind.power > 0);
       const scale = this.windScale(key, g);
-      const signX = this.windSignX();
+      const signX = this.windSignX(key);
       const signY = this.windSignY();
       const power = active ? wind.power : 0;
       const angle = wind ? wind.angle : 0;
@@ -800,7 +812,10 @@
         ? (TUNED_POWER_SCALES[key] || median(this.powerSamples))
         : ownPower;
       const observedGravity = median(bucket.gravity);
-      const predictedGravity = observedGravity === null ? this.predictGravity(key) : null;
+      const tunedGravity = TUNED_GRAVITIES[key];
+      const predictedGravity = observedGravity === null
+        ? (tunedGravity == null ? this.predictGravity(key) : tunedGravity)
+        : null;
       const gravity = observedGravity !== null ? observedGravity
         : (predictedGravity !== null ? predictedGravity : DEFAULT_PROFILE.gravity);
       const gravitySource = observedGravity !== null ? 'observed'

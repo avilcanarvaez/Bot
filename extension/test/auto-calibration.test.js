@@ -239,7 +239,7 @@
     const armor = cal.getProfile('Armor2D.png');
     approx(armor.gravity, 402, 1e-12, 'Armor observada');
     const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
-    approx(boomer.gravity, 402 / 75 * 62.5, 1e-9, 'Boomer predicha');
+    approx(boomer.gravity, 100, 1e-9, 'Boomer predicha');
     assert(boomer.gravitySource === 'predicted', 'gravitySource');
     assert(boomer.samples.gravity === 0, 'sin muestras propias');
     // La potencia es del disparo, no del móvil: se hereda la global.
@@ -250,7 +250,7 @@
   test('Boomer sin ninguna observación usa la unidad de respaldo', function () {
     const cal = new api.AutoCalibration();
     const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
-    approx(boomer.gravity, 390 / 75 * 62.5, 1e-12, 'gravedad de respaldo');
+    approx(boomer.gravity, 100, 1e-12, 'gravedad de respaldo');
     assert(boomer.gravitySource === 'predicted', 'gravitySource');
     approx(boomer.powerScale, 2.269, 1e-12, 'potencia de respaldo');
   });
