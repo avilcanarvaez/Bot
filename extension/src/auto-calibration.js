@@ -43,11 +43,13 @@
   // PowerScale live inicial por móvil. Las muestras propias tienen prioridad;
   // esto evita que el primer disparo de Boomer herede la escala de Armor.
   const TUNED_POWER_SCALES = Object.freeze({
-    boomer: 0.87675,
+    // Sala live actual: dos disparos power=366 -> s[3]=320.
+    boomer: 0.87432,
   });
 
   // Gravedad LIVE de Boomer: tres disparos con aire 0 dieron s[5] = 100.
-  const TUNED_GRAVITIES = Object.freeze({ boomer: 100 });
+  // Sala live actual: dos disparos con s[4]=0 -> s[5]=97.
+  const TUNED_GRAVITIES = Object.freeze({ boomer: 97 });
 
   // Boca del cañón por móvil en el marco local del cuerpo: `[ángulo, radio]`
   // con 0° = horizontal hacia delante y positivo hacia arriba. Es la tabla
