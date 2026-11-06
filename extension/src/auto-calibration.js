@@ -40,16 +40,13 @@
     armor: DEFAULT_PROFILE.origin,
   });
 
-  // PowerScale live inicial por móvil. Las muestras propias tienen prioridad;
-  // esto evita que el primer disparo de Boomer herede la escala de Armor.
+  // PowerScale y gravedad REALES de Boomer, ajustados desde la trayectoria
+  // `path` del servidor (aire 0): v0/power ≈ 1,805 y g ≈ 184. NO usar
+  // s[3]/s[5] (≈mitad de los reales).
   const TUNED_POWER_SCALES = Object.freeze({
-    // Sala live actual: dos disparos power=366 -> s[3]=320.
-    boomer: 0.87432,
+    boomer: 1.805,
   });
-
-  // Gravedad LIVE de Boomer: tres disparos con aire 0 dieron s[5] = 100.
-  // Sala live actual: dos disparos con s[4]=0 -> s[5]=97.
-  const TUNED_GRAVITIES = Object.freeze({ boomer: 97 });
+  const TUNED_GRAVITIES = Object.freeze({ boomer: 184 });
 
   // Boca del cañón por móvil en el marco local del cuerpo: `[ángulo, radio]`
   // con 0° = horizontal hacia delante y positivo hacia arriba. Es la tabla
@@ -197,6 +194,81 @@
     return {
       a: aim[1] * Math.cos(rad),
       c: aim[1] * Math.sin(rad),
+    };
+  }
+
+  /**
+   * Ajusta la trayectoria REAL que envía el servidor en `play[15].path`
+   * (lista plana `[x0,y0,z0, x1,y1,z1, …]`) a una parábola con aceleración
+   * constante. Devuelve v0, gravedad y ángulo reales. Es la fuente de verdad:
+   * `s[3]`/`s[5]` no coinciden con la velocidad/gravedad reales de Boomer.
+   *
+   * x(t) = x0 + vx·t
+   * y(t) = y0 + vy·t + ½·g·t²
+   */
+  function fitPath(path, timeMs) {
+    if (!Array.isArray(path) || path.length < 12) return null;
+    const n = Math.floor(path.length / 3);
+    if (n < 3) return null;
+    const totalT = (Number(timeMs) || 0) / 1000;
+    if (!(totalT > 0)) return null;
+    const xs = [];
+    const ys = [];
+    for (let i = 0; i < n; i++) {
+      xs.push(asNumber(path[3 * i]));
+      ys.push(asNumber(path[3 * i + 1]));
+    }
+    for (let i = 0; i < n; i++) {
+      if (xs[i] === null || ys[i] === null) return null;
+    }
+    // x es lineal en t (aceleración horizontal 0 con aire 0).
+    const vx = (xs[n - 1] - xs[0]) / totalT;
+    // y cuadrática: ajuste mínimo cuadrático en u = i/(n-1).
+    // y = c + b·u + a·u²  → g = 2a/totalT², vy = b/totalT.
+    let S00 = 0, S01 = 0, S02 = 0, S11 = 0, S12 = 0, S22 = 0;
+    let T0 = 0, T1 = 0, T2 = 0;
+    for (let i = 0; i < n; i++) {
+      const u = i / (n - 1);
+      const y = ys[i];
+      S00 += 1; S01 += u; S02 += u * u;
+      S11 += u * u; S12 += u * u * u; S22 += u * u * u * u;
+      T0 += y; T1 += u * y; T2 += u * u * y;
+    }
+    // Resolver 3x3 (Gauss).
+    const M = [[S00, S01, S02, T0], [S01, S11, S12, T1], [S02, S12, S22, T2]];
+    for (let c = 0; c < 3; c++) {
+      let p = c;
+      for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      const tmp = M[c]; M[c] = M[p]; M[p] = tmp;
+      if (!M[c][c]) return null;
+      for (let r = c + 1; r < 3; r++) {
+        const f = M[r][c] / M[c][c];
+        for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k];
+      }
+    }
+    const sol = [0, 0, 0];
+    for (let r = 2; r >= 0; r--) {
+      let s = M[r][3];
+      for (let k = r + 1; k < 3; k++) s -= M[r][k] * sol[k];
+      sol[r] = s / M[r][r];
+    }
+    const c0 = sol[0], b = sol[1], a = sol[2];
+    const vy = b / totalT;
+    const gravity = 2 * a / (totalT * totalT);
+    const v0 = Math.hypot(vx, vy);
+    const angle = ((Math.atan2(-vy, vx) * 180 / Math.PI) % 360 + 360) % 360;
+    if (!Number.isFinite(v0) || !Number.isFinite(gravity) || !(v0 > 0)) return null;
+    return {
+      originX: xs[0],
+      originY: ys[0],
+      vx: vx,
+      vy: vy,
+      v0: v0,
+      gravity: gravity,
+      angle: angle,
+      samples: n,
+      time: totalT,
+      fitY0: c0,
     };
   }
 
@@ -473,13 +545,16 @@
       }
 
       const s = entry.s;
-      const v0 = asNumber(s[3]);
+      // `path` es la trayectoria REAL muestreada por el servidor: es la fuente
+      // de verdad. En Boomer, `s[3]`/`s[5]` no son la velocidad/gravedad
+      // reales (≈mitad), así que usamos el ajuste de `path` cuando existe.
+      const pathFit = fitPath(entry.path, entry.time);
       const windX = asNumber(s[4]);
-      const vertAccel = asNumber(s[5]);
+      const v0 = pathFit ? pathFit.v0 : asNumber(s[3]);
+      const vertAccel = pathFit ? pathFit.gravity : asNumber(s[5]);
       const powerScale = v0 === null ? null : v0 / shot.power;
-      // Producción live usa una escala de velocidad distinta para Boomer
-      // (≈0,88 en los disparos observados). No aplicar el rango de Armor
-      // (1,5..3,5), porque descartaría precisamente sus muestras reales.
+      // La escala real ya puede ser ~1,8 (Boomer); el rango de Armor (1,5..3,5)
+      // vale, pero Boomer histórico quedó en 0,87. Aceptar [0,5..5].
       const minPowerScale = mobileKey(shot.mobile) === 'boomer'
         ? 0.5 : this.options.minPowerScale;
 
@@ -551,6 +626,7 @@
         v0: v0,
         windX: windX,
         vertAccel: vertAccel,
+        pathFit: pathFit,
         wind: shot.wind || null,
         windLearned: !!windLearned,
         windSample: windLearned,
@@ -943,6 +1019,7 @@
     MOBILE_AIM: MOBILE_AIM,
     WIND_GRAVITY_RATIO: WIND_GRAVITY_RATIO,
     aimOrigin: aimOrigin,
+    fitPath: fitPath,
     mobileKey: mobileKey,
   };
 

@@ -285,19 +285,19 @@
         const boomerSnap = window.__DS_EXT_HOOK__.snapshot();
         assert('perfil Boomer en el snapshot',
           boomerSnap.profile.mobile === 'boomer' &&
-          Math.abs(boomerSnap.profile.gravity - 97) < 1e-9, boomerSnap.profile);
+          Math.abs(boomerSnap.profile.gravity - 184) < 1e-9, boomerSnap.profile);
         const boomerPower = Number(powerPanelEl.dataset.power);
-        // Boomer tiene powerScale ≈0,874, mucho menor que Armor: para el mismo
-        // destino necesita MÁS número de potencia aunque su gravedad sea menor.
+        // Boomer tiene gravedad real mucho menor (≈184): para el mismo destino
+        // necesita MENOS potencia que Armor.
         assert('Boomer calcula su propia potencia',
-          boomerPower > 0 && boomerPower > armorPower && boomerPower <= 400,
+          boomerPower > 0 && boomerPower < armorPower && boomerPower <= 400,
           { armorPower: armorPower, boomerPower: boomerPower });
         assert('panel marca PREDICHO para Boomer',
           panelText().indexOf('PREDICHO') >= 0, panelText());
         assert('panel publica el móvil', powerPanelEl.dataset.mobile === 'boomer',
           powerPanelEl.dataset);
         assert('panel publica la gravedad',
-          Math.abs(Number(powerPanelEl.dataset.gravity) - 97) < 0.2,
+          Math.abs(Number(powerPanelEl.dataset.gravity) - 184) < 0.2,
           powerPanelEl.dataset);
 
         // Desde el primer tiro el origen debe salir del vector aim de Boomer

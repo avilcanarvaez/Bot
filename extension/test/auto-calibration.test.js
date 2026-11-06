@@ -239,19 +239,19 @@
     const armor = cal.getProfile('Armor2D.png');
     approx(armor.gravity, 402, 1e-12, 'Armor observada');
     const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
-    approx(boomer.gravity, 97, 1e-9, 'Boomer LIVE');
+    approx(boomer.gravity, 184, 1e-9, 'Boomer LIVE');
     assert(boomer.gravitySource === 'predicted', 'gravitySource');
     assert(boomer.samples.gravity === 0, 'sin muestras propias');
-    approx(boomer.powerScale, 0.87432, 1e-12, 'potencia LIVE de Boomer');
+    approx(boomer.powerScale, 1.805, 1e-12, 'potencia LIVE de Boomer');
     assert(boomer.samples.power === 0, 'sin muestras propias de potencia');
   });
 
   test('Boomer sin observación usa su gravedad y potencia LIVE', function () {
     const cal = new api.AutoCalibration();
     const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
-    approx(boomer.gravity, 97, 1e-12, 'gravedad LIVE');
+    approx(boomer.gravity, 184, 1e-12, 'gravedad LIVE');
     assert(boomer.gravitySource === 'predicted', 'gravitySource');
-    approx(boomer.powerScale, 0.87432, 1e-12, 'potencia LIVE');
+    approx(boomer.powerScale, 1.805, 1e-12, 'potencia LIVE');
   });
 
   test('las muestras de Boomer y Armor no se mezclan', function () {
@@ -305,7 +305,7 @@
     const defaultUnit = 390 / 75;
     Object.keys(api.MOBILE_A).forEach(function (name) {
       const profile = cal.getProfile(name + '2D.png');
-      const expectedG = name === 'boomer' ? 97
+      const expectedG = name === 'boomer' ? 184
         : (name === 'armor' ? 402 : defaultUnit * api.MOBILE_A[name]);
       approx(profile.gravity, expectedG, 1e-9, name);
       assert(profile.mobile === name, name + ': clave');
@@ -554,6 +554,26 @@
     assert(profile.wind.unitSource === 'measured', 'escala medida');
     approx(profile.wind.unit,
       (390 - 360) / (Math.sin(89 * Math.PI / 180) * 30), 1e-9, 'escala Y');
+  });
+
+  test('fitPath deriva velocidad y gravedad reales (Boomer LIVE, aire 0)', function () {
+    // Path real del servidor para Boomer, power=109, aire 0.
+    // s=[680,39,104,95,0,101]; el path revela v0≈198,7 y g≈181,8.
+    const path = [680, 39, 0, 678, 29, 0, 676, 20, 0, 673, 11, 0, 671, 3, 0,
+      669, -5, 0, 667, -12, 0, 665, -19, 0, 662, -25, 0, 660, -31, 0,
+      658, -37, 0, 656, -41, 0, 654, -46, 0, 651, -50, 0, 649, -53, 0,
+      647, -56, 0, 645, -59, 0, 643, -61, 0, 640, -63, 0, 638, -64, 0,
+      636, -64, 0, 634, -65, 0, 632, -64, 0, 629, -64, 0, 627, -62, 0,
+      625, -61, 0, 623, -58, 0, 621, -56, 0, 618, -52, 0, 616, -49, 0,
+      614, -45, 0, 612, -40, 0, 610, -35, 0, 607, -29, 0, 605, -23, 0,
+      603, -17, 0, 601, -10, 0, 599, -2, 0, 596, 5, 0, 594, 14, 0,
+      592, 23, 0, 590, 32, 0, 588, 42, 0];
+    const fit = api.fitPath(path, 2150);
+    assert(fit && fit.samples === 43, 'fit');
+    approx(fit.v0, 198.7, 1.5, 'v0 real');
+    approx(fit.gravity, 181.8, 2.5, 'gravedad real');
+    approx(fit.angle, 102.5, 1.5, 'ángulo real');
+    assert(fit.v0 / 109 > 1.7 && fit.v0 / 109 < 1.95, 'powerScale real ≈1,8');
   });
 
   root.__DS_TEST_RESULTS = results;
