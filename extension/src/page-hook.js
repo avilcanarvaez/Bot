@@ -370,9 +370,13 @@
       });
       if (windLog.length > 200) windLog.shift();
     }
-    // Registro completo del disparo (sirve para calibrar gravedad, viento,
-    // origen y powerScale de un móvil en vivo).
-    if (result.matched && result.delta && result.shot) {
+    // Registro continuo del disparo (sirve para calibrar gravedad, viento,
+    // origen y powerScale). También conserva los casos rechazados o
+    // incompletos, para no perder evidencia LIVE.
+    if (result.matched && result.shot) {
+      const rawS = result.delta && result.delta.s
+        ? result.delta.s
+        : (result.s || null);
       shotLog.push({
         t: Date.now(),
         mobile: mobileNameOf(me) || 'unknown',
@@ -382,8 +386,12 @@
         look: result.shot.look,
         ang: result.shot.ang,
         power: result.shot.power,
-        s: result.delta.s,
-        wind: result.delta.wind || null,
+        s: rawS,
+        entries: result.entries || null,
+        wind: (result.delta && result.delta.wind) || result.shot.wind || null,
+        calibrated: !!result.calibrated,
+        reason: result.reason || null,
+        complete: Array.isArray(rawS) && rawS.length >= 6,
       });
       if (shotLog.length > 200) shotLog.shift();
     }
