@@ -2170,6 +2170,58 @@ Pendiente: confirmar en vivo que Boomer ya acierta con viento (escala ~3,42) y
 que la gravedad `a=62,5` (→ 325) es correcta; si la potencia sigue desviada, el
 siguiente paso es calibrar la gravedad de Boomer con un tiro sin viento.
 
+### 16.23 Boomer estable: modelo desde `play[15].path` (2026-11-06, v1.0.0)
+
+#### Hallazgo
+
+`play[15]` (y cada entrada) incluye un campo **`path`** con la trayectoria REAL
+muestreada (`[x0,y0,z0, x1,y1,z1, …]`) además de `h` (rectángulo de impacto) y
+`d` (daño). La extensión lo ignoraba y usaba `s[3]`/`s[5]`.
+
+Ajustando el `path` a `x=x0+vx·t`, `y=y0+vy·t+½·g·t²` (20 Hz), los disparos
+largos de Boomer con aire 0 dan:
+
+| `power` | `s[3]` | v0 real (`path`) | `s[5]` | g real (`path`) |
+|---:|---:|---:|---:|---:|
+| 109 | 95 | 198,6 | 101 | 181,8 |
+| 214 | 187 | 382,5 | 101 | 185,7 |
+
+Es decir: `s[3]`/`s[5]` **no son** la velocidad ni la gravedad reales de
+Boomer (≈mitad). Por eso la parábola salía desviada aunque las constantes
+“cuadraran” con `s`.
+
+#### Corrección
+
+- `fitPath(path, time)` ajusta la trayectoria real; requiere ≥12 puntos para
+  evitar ruido de `path` cortos.
+- `observePlay` usa v0 y gravedad del `path` cuando existe; `s` queda de
+  respaldo.
+- Semillas de Boomer: `powerScale=1,805`, `gravity=184`.
+- `gravityUnits` y `powerScale` son **por móvil** (una escala global corrompía
+  a otros móviles, p. ej. Dragon2 quedaba INALCANZABLE).
+- La extensión cargada en Brave debe **“Volver a cargar”** en
+  `chrome://extensions` tras cambiar el código; reiniciar Brave no siempre
+  refresca una extensión sin empaquetar.
+
+#### Validación LIVE
+
+Disparos automatizados por CDP en la partida real (Boomer, aire 0). Con el
+modelo nuevo (`1,805/184`) frente al `path` real:
+
+- Tiro de `power=122`: error máximo **9,2 px** (antes 76/54 px con el modelo
+  viejo).
+- `path` largos: coincidencia ≈**1 %** en v0 y g.
+
+Algunos `path` de Boomer **oscilan en X** (giro del bumerán); la parábola
+representa la trayectoria central (la que decide el impacto), no el zigzag
+visual del sprite.
+
+#### Estado
+
+`manifest.json` → **1.0.0 (ESTABLE)**. Pruebas **37/37** unidad y **67/67**
+integración. Validado en vivo: **Boomer con aire 0**. Pendiente: viento y el
+resto de móviles.
+
 ---
 
 ## Anexo A — Referencias de código (runtime del juego)

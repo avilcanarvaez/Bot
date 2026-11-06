@@ -10,15 +10,14 @@ ejecutarlo, qué está pendiente y cómo sincronizar.
 | Área | Estado |
 |---|---|
 | App Java de escritorio (captura + overlay + simulación) | **Implementada y probada** (39 tests OK). |
-| Extensión de navegador (MV3) | **Implementada** en `extension/`; pruebas 36/36 y 67/67; calibración por móvil, cobertura de los 21 móviles, origen por móvil con tabla `aim` + auto-calibración (v0.1.7), **origen de Boomer corregido** (v0.2.2) y **viento ∝ gravedad** (v0.2.3, escala `gravedad·0,01054` aprendida de `s[4]`), validación live pendiente. |
+| Extensión de navegador (MV3) | **ESTABLE v1.0.0 (2026-11-06)**: Boomer con aire 0 validado en vivo (trayectoria y potencia correctas). El modelo de Boomer se calibra desde `play[15].path` (v0≈1,80·power, g≈184). Pruebas 37/37 y 67/67. Pendiente: viento y resto de móviles. |
 | Verificación contra el sitio real `dragonbound.net` | **PENDIENTE / bloqueante** (§16 del diseño). |
 | Sincronización entre equipos | OneDrive activo + **GitHub** [`avilcanarvaez/Bot`](https://github.com/avilcanarvaez/Bot) (rama `main`, sincronizado). |
 
 Invariante de la **app Java de escritorio**: **`AIRE = 0`**. La **extensión web
-v0.2.3** ya aplica el viento (`wind_power`/`wind_angle`) con una escala
-proporcional a la gravedad del móvil, aprendida de `s[4]`; no se mezclan las
-constantes de ambos
-modelos.
+v1.0.0 (ESTABLE)** modela Boomer desde la trayectoria real `play[15].path`
+(v0≈1,80·power, g≈184) y mantiene `powerScale`/`gravity` por móvil; no se
+mezclan las constantes de ambos modelos.
 
 ---
 

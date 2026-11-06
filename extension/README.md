@@ -1,5 +1,10 @@
 # DragonShot — extensión web
 
+> **ESTABLE — v1.0.0 (2026-11-06).** Validado en vivo con **Boomer y aire 0**:
+> trayectoria y potencia correctas. El modelo de Boomer se calibra desde la
+> trayectoria real `play[15].path` (v0≈1,80·power, g≈184), no desde
+> `s[3]`/`s[5]`. Pendiente de validar: viento y el resto de móviles.
+
 Extensión MV3 para Chrome/Brave. Dibuja un overlay sobre DragonBound con:
 
 - origen en el cañón del jugador propio,
