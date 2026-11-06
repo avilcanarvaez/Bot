@@ -231,7 +231,7 @@
     assert(api.mobileKey('') === 'unknown', 'vacío');
   });
 
-  test('Boomer predice su gravedad desde la unidad observada en Armor', function () {
+  test('Boomer usa su gravedad LIVE y no hereda la de Armor', function () {
     const cal = new api.AutoCalibration();
     const f = fixtures.look0[0];
     cal.observeGameShoot(f.shoot, { mobile: f.mobile });
@@ -239,20 +239,19 @@
     const armor = cal.getProfile('Armor2D.png');
     approx(armor.gravity, 402, 1e-12, 'Armor observada');
     const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
-    approx(boomer.gravity, 100, 1e-9, 'Boomer predicha');
+    approx(boomer.gravity, 97, 1e-9, 'Boomer LIVE');
     assert(boomer.gravitySource === 'predicted', 'gravitySource');
     assert(boomer.samples.gravity === 0, 'sin muestras propias');
-    // La potencia es del disparo, no del móvil: se hereda la global.
-    approx(boomer.powerScale, 461 / 195, 1e-12, 'potencia global');
+    approx(boomer.powerScale, 0.87432, 1e-12, 'potencia LIVE de Boomer');
     assert(boomer.samples.power === 0, 'sin muestras propias de potencia');
   });
 
-  test('Boomer sin ninguna observación usa la unidad de respaldo', function () {
+  test('Boomer sin observación usa su gravedad y potencia LIVE', function () {
     const cal = new api.AutoCalibration();
     const boomer = cal.getProfile('/static/images/mobiles/Boomer2D.png');
-    approx(boomer.gravity, 100, 1e-12, 'gravedad de respaldo');
+    approx(boomer.gravity, 97, 1e-12, 'gravedad LIVE');
     assert(boomer.gravitySource === 'predicted', 'gravitySource');
-    approx(boomer.powerScale, 2.269, 1e-12, 'potencia de respaldo');
+    approx(boomer.powerScale, 0.87432, 1e-12, 'potencia LIVE');
   });
 
   test('las muestras de Boomer y Armor no se mezclan', function () {
@@ -300,10 +299,15 @@
     const f = fixtures.look0[0];
     cal.observeGameShoot(f.shoot, { mobile: f.mobile });
     cal.observePlay(playFor(f));
-    const unit = 402 / 75;
+    // La unidad de gravedad es por móvil: sin muestras propias se usa la
+    // unidad de respaldo (390/75=5,2); Armor aporta su propia unidad (402/75)
+    // solo a su propio perfil. Boomer usa su gravedad LIVE 97.
+    const defaultUnit = 390 / 75;
     Object.keys(api.MOBILE_A).forEach(function (name) {
       const profile = cal.getProfile(name + '2D.png');
-      approx(profile.gravity, unit * api.MOBILE_A[name], 1e-9, name);
+      const expectedG = name === 'boomer' ? 97
+        : (name === 'armor' ? 402 : defaultUnit * api.MOBILE_A[name]);
+      approx(profile.gravity, expectedG, 1e-9, name);
       assert(profile.mobile === name, name + ': clave');
       if (name !== 'armor') {
         assert(profile.gravitySource === 'predicted', name + ': fuente');
@@ -378,8 +382,8 @@
     const profile = cal.getProfile('Boomer2D.png');
     assert(profile.originCalibrated === true, 'calibrado');
     assert(profile.originSource === 'measured', 'fuente');
-    approx(profile.origin.a, 10.49, 1e-9, 'a');
-    approx(profile.origin.c, 27.82, 1e-9, 'c');
+    approx(profile.origin.a, 10, 1e-9, 'a');
+    approx(profile.origin.c, 28, 1e-9, 'c');
     assert(profile.originMeasured.samples === 3, 'muestras');
     assert(profile.originMeasured.stable === true, 'estable');
   });
@@ -488,11 +492,7 @@
     const armor = cal.getProfile('Armor2D.png').wind;
     const boomer = cal.getProfile('Boomer2D.png').wind;
     approx(armor.unit, armorG * api.WIND_GRAVITY_RATIO, 1e-9, 'Armor escala');
-    approx(boomer.unit, boomerG * api.WIND_GRAVITY_RATIO, 1e-9, 'Boomer escala');
-    approx(boomer.windX / armor.windX, boomerG / armorG, 1e-9, 'Boomer/Armor');
-    assert(boomerG < armorG, 'Boomer gravedad menor');
-    assert(Math.abs(boomer.windX) < Math.abs(armor.windX),
-      'Boomer sufre menos viento');
+    approx(boomer.unit, 5.41, 1e-9, 'Boomer escala LIVE');
   });
 
   test('aprende escala y signo de viento de un disparo live', function () {

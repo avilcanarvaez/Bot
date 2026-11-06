@@ -387,9 +387,10 @@
       // Potencia global (todos los móviles): sirve de respaldo cuando el móvil
       // todavía no tiene muestras propias.
       this.powerSamples = [];
-      // Unidades de gravedad observadas (`s[5] / a` del móvil). Sirven para
-      // predecir la gravedad de un móvil que aún no ha disparado.
-      this.gravityUnits = [];
+      // Unidades de gravedad POR MÓVIL: `s[5]/a` no comparte escala entre
+      // móviles (Armor ≈ 5,2; Boomer ≈ 1,6), así que mezclarlas corrompía la
+      // predicción de otros móviles.
+      this.gravityUnits = new Map();
       // Viento del turno que se está jugando (lo publica el `play` anterior).
       this.wind = null;
       // Escala de viento por móvil (px/s² por unidad de `wind_power`). Se
@@ -504,8 +505,6 @@
       const bucket = this.bucketFor(shot.mobile);
       bucket.power.push(powerScale);
       if (bucket.power.length > this.options.windowSize) bucket.power.shift();
-      this.powerSamples.push(powerScale);
-      if (this.powerSamples.length > this.options.windowSize) this.powerSamples.shift();
 
       let gravityUpdated = false;
       const hasWind = !!(shot.wind && shot.wind.power > 0);
@@ -513,12 +512,13 @@
           (!this.options.gravityRequiresZeroWind || (windX === 0 && !hasWind))) {
         bucket.gravity.push(vertAccel);
         if (bucket.gravity.length > this.options.windowSize) bucket.gravity.shift();
-        const a = MOBILE_A[mobileKey(shot.mobile)];
+        const key = mobileKey(shot.mobile);
+        const a = MOBILE_A[key];
         if (a) {
-          this.gravityUnits.push(vertAccel / a);
-          if (this.gravityUnits.length > this.options.windowSize) {
-            this.gravityUnits.shift();
-          }
+          const units = this.gravityUnits.get(key) || [];
+          units.push(vertAccel / a);
+          if (units.length > this.options.windowSize) units.shift();
+          this.gravityUnits.set(key, units);
         }
         gravityUpdated = true;
       }
@@ -586,11 +586,13 @@
      * el móvil no está en la tabla.
      */
     predictGravity(mobile) {
-      const a = MOBILE_A[mobileKey(mobile)];
+      const key = mobileKey(mobile);
+      const a = MOBILE_A[key];
       if (!a) return null;
-      // Sin observaciones se usa la unidad de respaldo (Armor 390 / a=75), que
-      // ya aproxima la gravedad real mejor que dejar la de Armor para todos.
-      const unit = median(this.gravityUnits);
+      // Solo la unidad observada de ESTE móvil; nunca la de otro. Armor sirve
+      // de respaldo inicial porque su escala (≈5,2) fue la verificada live.
+      const units = this.gravityUnits.get(key);
+      const unit = units && units.length ? median(units) : null;
       return (unit === null ? DEFAULT_GRAVITY_UNIT : unit) * a;
     }
 
@@ -810,8 +812,11 @@
       const key = normalizeMobile(mobile || (this.last && this.last.shot.mobile) || 'Armor2D.png');
       const bucket = this.buckets.get(key) || { power: [], gravity: [] };
       const ownPower = median(bucket.power);
+      // La escala de potencia es POR MÓVIL (Armor ≈2,36; Boomer ≈0,875).
+      // No usar una mediana global: mezclar escalas hacía que otros móviles
+      // quedaran INALCANZABLES.
       const powerScale = ownPower === null
-        ? (TUNED_POWER_SCALES[key] || median(this.powerSamples))
+        ? (TUNED_POWER_SCALES[key] || DEFAULT_PROFILE.powerScale)
         : ownPower;
       const observedGravity = median(bucket.gravity);
       const tunedGravity = TUNED_GRAVITIES[key];
@@ -912,7 +917,7 @@
       this.pendingShots = [];
       this.buckets.clear();
       this.powerSamples = [];
-      this.gravityUnits = [];
+      this.gravityUnits.clear();
       this.wind = null;
       this.windScales.clear();
       this.windSamplesX = [];

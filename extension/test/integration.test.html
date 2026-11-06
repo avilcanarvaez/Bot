@@ -285,20 +285,19 @@
         const boomerSnap = window.__DS_EXT_HOOK__.snapshot();
         assert('perfil Boomer en el snapshot',
           boomerSnap.profile.mobile === 'boomer' &&
-          Math.abs(boomerSnap.profile.gravity - 100) < 1e-9, boomerSnap.profile);
+          Math.abs(boomerSnap.profile.gravity - 97) < 1e-9, boomerSnap.profile);
         const boomerPower = Number(powerPanelEl.dataset.power);
-        // Boomer usa el origen delante/arriba (igual que Armor) y su gravedad
-        // más baja: para el mismo destino pide MENOS potencia que Armor.
+        // Boomer tiene powerScale ≈0,874, mucho menor que Armor: para el mismo
+        // destino necesita MÁS número de potencia aunque su gravedad sea menor.
         assert('Boomer calcula su propia potencia',
-          boomerPower > 0 && boomerPower < armorPower &&
-          Math.abs(boomerPower - armorPower) <= 20,
+          boomerPower > 0 && boomerPower > armorPower && boomerPower <= 400,
           { armorPower: armorPower, boomerPower: boomerPower });
         assert('panel marca PREDICHO para Boomer',
           panelText().indexOf('PREDICHO') >= 0, panelText());
         assert('panel publica el móvil', powerPanelEl.dataset.mobile === 'boomer',
           powerPanelEl.dataset);
         assert('panel publica la gravedad',
-          Math.abs(Number(powerPanelEl.dataset.gravity) - 100) < 0.2,
+          Math.abs(Number(powerPanelEl.dataset.gravity) - 97) < 0.2,
           powerPanelEl.dataset);
 
         // Desde el primer tiro el origen debe salir del vector aim de Boomer
@@ -315,7 +314,7 @@
         const powerBar2 = document.getElementById('powerBar');
         const boomerPlay = function (v0) {
           return [8, 0, 793, 118, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            [{ s: [795, 88, 153, v0, 0, 100], time: 1175 }]];
+            [{ s: [795, 88, 153, v0, 0, 97], time: 1175 }]];
         };
         for (let i = 0; i < 3; i++) {
           powerBar2.style.width = (196 + i) + 'px';
@@ -365,8 +364,16 @@
               dest: st && st.destClient,
             });
         }
-        // Restaurar ángulo/cuerpo para no afectar las pruebas siguientes.
+        // Restaurar ángulo/cuerpo y el destino para no afectar las pruebas
+        // siguientes (el multi-ángulo cambió el cuerpo a 0).
         await setAim(1, 72, -17);
+        const restoreSnap = window.__DS_EXT_HOOK__.snapshot();
+        const restoreOwn = toClient(restoreSnap, { x: restoreSnap.me.x, y: restoreSnap.me.y });
+        const restoreDst = toClient(restoreSnap,
+          { x: restoreSnap.me.x + 250, y: restoreSnap.me.y + 10 });
+        click(restoreOwn.x, restoreOwn.y);
+        click(restoreDst.x, restoreDst.y);
+        await wait(220);
 
         setPlayer({
           mobile: 'Dragon22D.png',
@@ -376,7 +383,7 @@
         const dragonSnap = window.__DS_EXT_HOOK__.snapshot();
         assert('perfil Dragon2 en el snapshot',
           dragonSnap.profile.mobile === 'dragon2' &&
-          Math.abs(dragonSnap.profile.gravity - 643.2) < 1e-9, dragonSnap.profile);
+          Math.abs(dragonSnap.profile.gravity - 624) < 1e-9, dragonSnap.profile);
         const dragonPower = Number(powerPanelEl.dataset.power);
         assert('Dragon2 pide más potencia', dragonPower > armorPower,
           { armorPower: armorPower, dragonPower: dragonPower });
