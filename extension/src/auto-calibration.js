@@ -209,7 +209,9 @@
   function fitPath(path, timeMs) {
     if (!Array.isArray(path) || path.length < 12) return null;
     const n = Math.floor(path.length / 3);
-    if (n < 3) return null;
+    // Trayectorias muy cortas (pocos puntos) dan v0/g ruidosos y contaminan
+    // la calibración; se ignoran para aprender (se siguen registrando).
+    if (n < 12) return null;
     const totalT = (Number(timeMs) || 0) / 1000;
     if (!(totalT > 0)) return null;
     const xs = [];
@@ -549,6 +551,18 @@
       // de verdad. En Boomer, `s[3]`/`s[5]` no son la velocidad/gravedad
       // reales (≈mitad), así que usamos el ajuste de `path` cuando existe.
       const pathFit = fitPath(entry.path, entry.time);
+      // Si el servidor envía `path` pero es demasiado corto para un ajuste
+      // fiable, no se aprende de él (evita contaminar con ruido). Se registra
+      // igualmente en __DS_SHOT_LOG__ para validación.
+      if (Array.isArray(entry.path) && !pathFit) {
+        return {
+          matched: true,
+          calibrated: false,
+          shot: shot,
+          reason: 'path-corta',
+          s: s,
+        };
+      }
       const windX = asNumber(s[4]);
       const v0 = pathFit ? pathFit.v0 : asNumber(s[3]);
       const vertAccel = pathFit ? pathFit.gravity : asNumber(s[5]);
