@@ -387,6 +387,7 @@
         ang: result.shot.ang,
         power: result.shot.power,
         s: rawS,
+        rawEntry: result.entry || null,
         time: result.entry && result.entry.time != null ? result.entry.time : null,
         impact: result.entry && result.entry.h ? result.entry.h : null,
         entries: result.entries || null,
