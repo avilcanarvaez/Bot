@@ -223,54 +223,61 @@
     for (let i = 0; i < n; i++) {
       if (xs[i] === null || ys[i] === null) return null;
     }
-    // x es lineal en t (aceleración horizontal 0 con aire 0).
-    const vx = (xs[n - 1] - xs[0]) / totalT;
-    // y cuadrática: ajuste mínimo cuadrático en u = i/(n-1).
-    // y = c + b·u + a·u²  → g = 2a/totalT², vy = b/totalT.
-    let S00 = 0, S01 = 0, S02 = 0, S11 = 0, S12 = 0, S22 = 0;
-    let T0 = 0, T1 = 0, T2 = 0;
-    for (let i = 0; i < n; i++) {
-      const u = i / (n - 1);
-      const y = ys[i];
-      S00 += 1; S01 += u; S02 += u * u;
-      S11 += u * u; S12 += u * u * u; S22 += u * u * u * u;
-      T0 += y; T1 += u * y; T2 += u * u * y;
-    }
-    // Resolver 3x3 (Gauss).
-    const M = [[S00, S01, S02, T0], [S01, S11, S12, T1], [S02, S12, S22, T2]];
-    for (let c = 0; c < 3; c++) {
-      let p = c;
-      for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
-      const tmp = M[c]; M[c] = M[p]; M[p] = tmp;
-      if (!M[c][c]) return null;
-      for (let r = c + 1; r < 3; r++) {
-        const f = M[r][c] / M[c][c];
-        for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k];
+    // Ajuste cuadrático genérico en u = i/(n-1): v = c + b·u + a·u².
+    // Con viento, x TAMBIÉN es cuadrática (aceleración horizontal ≠ 0).
+    function fitQuad(vals) {
+      let S00 = 0, S01 = 0, S02 = 0, S11 = 0, S12 = 0, S22 = 0;
+      let T0 = 0, T1 = 0, T2 = 0;
+      for (let i = 0; i < n; i++) {
+        const u = i / (n - 1);
+        const v = vals[i];
+        S00 += 1; S01 += u; S02 += u * u;
+        S11 += u * u; S12 += u * u * u; S22 += u * u * u * u;
+        T0 += v; T1 += u * v; T2 += u * u * v;
       }
+      const M = [[S00, S01, S02, T0], [S01, S11, S12, T1], [S02, S12, S22, T2]];
+      for (let c = 0; c < 3; c++) {
+        let p = c;
+        for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+        const tmp = M[c]; M[c] = M[p]; M[p] = tmp;
+        if (!M[c][c]) return null;
+        for (let r = c + 1; r < 3; r++) {
+          const f = M[r][c] / M[c][c];
+          for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k];
+        }
+      }
+      const sol = [0, 0, 0];
+      for (let r = 2; r >= 0; r--) {
+        let s = M[r][3];
+        for (let k = r + 1; k < 3; k++) s -= M[r][k] * sol[k];
+        sol[r] = s / M[r][r];
+      }
+      return sol;
     }
-    const sol = [0, 0, 0];
-    for (let r = 2; r >= 0; r--) {
-      let s = M[r][3];
-      for (let k = r + 1; k < 3; k++) s -= M[r][k] * sol[k];
-      sol[r] = s / M[r][r];
-    }
-    const c0 = sol[0], b = sol[1], a = sol[2];
-    const vy = b / totalT;
-    const gravity = 2 * a / (totalT * totalT);
+    const fx = fitQuad(xs);
+    const fy = fitQuad(ys);
+    if (!fx || !fy) return null;
+    const vx = fx[1] / totalT;
+    const ax = 2 * fx[2] / (totalT * totalT);   // aceleración horizontal real (viento)
+    const vy = fy[1] / totalT;
+    const ay = 2 * fy[2] / (totalT * totalT);   // aceleración vertical real
     const v0 = Math.hypot(vx, vy);
     const angle = ((Math.atan2(-vy, vx) * 180 / Math.PI) % 360 + 360) % 360;
-    if (!Number.isFinite(v0) || !Number.isFinite(gravity) || !(v0 > 0)) return null;
+    if (!Number.isFinite(v0) || !Number.isFinite(ay) || !(v0 > 0)) return null;
     return {
       originX: xs[0],
       originY: ys[0],
       vx: vx,
       vy: vy,
       v0: v0,
-      gravity: gravity,
+      gravity: ay,
+      windX: ax,
+      ax: ax,
+      ay: ay,
       angle: angle,
       samples: n,
       time: totalT,
-      fitY0: c0,
+      fitY0: fy[0],
     };
   }
 
@@ -563,7 +570,7 @@
           s: s,
         };
       }
-      const windX = asNumber(s[4]);
+      const windX = pathFit ? pathFit.windX : asNumber(s[4]);
       const v0 = pathFit ? pathFit.v0 : asNumber(s[3]);
       const vertAccel = pathFit ? pathFit.gravity : asNumber(s[5]);
       const powerScale = v0 === null ? null : v0 / shot.power;
@@ -597,8 +604,11 @@
 
       let gravityUpdated = false;
       const hasWind = !!(shot.wind && shot.wind.power > 0);
+      // Con `path`, windX puede tener ruido de ±1 aunque el aire sea 0:
+      // se usa una tolerancia pequeña en vez de `=== 0`.
+      const windXSmall = windX === null || Math.abs(windX) < 2;
       if (vertAccel !== null && vertAccel > 0 &&
-          (!this.options.gravityRequiresZeroWind || (windX === 0 && !hasWind))) {
+          (!this.options.gravityRequiresZeroWind || (windXSmall && !hasWind))) {
         bucket.gravity.push(vertAccel);
         if (bucket.gravity.length > this.options.windowSize) bucket.gravity.shift();
         const key = mobileKey(shot.mobile);
