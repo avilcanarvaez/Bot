@@ -387,6 +387,8 @@
         ang: result.shot.ang,
         power: result.shot.power,
         s: rawS,
+        time: result.entry && result.entry.time != null ? result.entry.time : null,
+        impact: result.entry && result.entry.h ? result.entry.h : null,
         entries: result.entries || null,
         wind: (result.delta && result.delta.wind) || result.shot.wind || null,
         calibrated: !!result.calibrated,
