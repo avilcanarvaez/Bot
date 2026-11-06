@@ -223,44 +223,25 @@
     for (let i = 0; i < n; i++) {
       if (xs[i] === null || ys[i] === null) return null;
     }
-    // Ajuste cuadrático genérico en u = i/(n-1): v = c + b·u + a·u².
-    // Con viento, x TAMBIÉN es cuadrática (aceleración horizontal ≠ 0).
-    function fitQuad(vals) {
-      let S00 = 0, S01 = 0, S02 = 0, S11 = 0, S12 = 0, S22 = 0;
-      let T0 = 0, T1 = 0, T2 = 0;
-      for (let i = 0; i < n; i++) {
-        const u = i / (n - 1);
-        const v = vals[i];
-        S00 += 1; S01 += u; S02 += u * u;
-        S11 += u * u; S12 += u * u * u; S22 += u * u * u * u;
-        T0 += v; T1 += u * v; T2 += u * u * v;
-      }
-      const M = [[S00, S01, S02, T0], [S01, S11, S12, T1], [S02, S12, S22, T2]];
-      for (let c = 0; c < 3; c++) {
-        let p = c;
-        for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
-        const tmp = M[c]; M[c] = M[p]; M[p] = tmp;
-        if (!M[c][c]) return null;
-        for (let r = c + 1; r < 3; r++) {
-          const f = M[r][c] / M[c][c];
-          for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k];
-        }
-      }
-      const sol = [0, 0, 0];
-      for (let r = 2; r >= 0; r--) {
-        let s = M[r][3];
-        for (let k = r + 1; k < 3; k++) s -= M[r][k] * sol[k];
-        sol[r] = s / M[r][r];
-      }
-      return sol;
+    // Parábola exacta por 3 puntos (inicio, medio, fin): v(t)=v0+b·t+a·t².
+    // Es estable con pocos puntos (el ajuste LS cuadrático es mal condicionado
+    // cuando la curvatura es pequeña frente a la tendencia lineal).
+    const mid = Math.floor((n - 1) / 2);
+    const t1 = totalT * mid / (n - 1);
+    function fit3(y0, y1, y2) {
+      const denom = t1 * totalT * (totalT - t1);
+      if (!denom) return null;
+      const b = ((y1 - y0) * totalT * totalT - (y2 - y0) * t1 * t1) / denom;
+      const a = ((y2 - y0) * t1 - (y1 - y0) * totalT) / denom;
+      return { b: b, a: a };
     }
-    const fx = fitQuad(xs);
-    const fy = fitQuad(ys);
+    const fx = fit3(xs[0], xs[mid], xs[n - 1]);
+    const fy = fit3(ys[0], ys[mid], ys[n - 1]);
     if (!fx || !fy) return null;
-    const vx = fx[1] / totalT;
-    const ax = 2 * fx[2] / (totalT * totalT);   // aceleración horizontal real (viento)
-    const vy = fy[1] / totalT;
-    const ay = 2 * fy[2] / (totalT * totalT);   // aceleración vertical real
+    const vx = fx.b;
+    const ax = 2 * fx.a;   // aceleración horizontal real (viento)
+    const vy = fy.b;
+    const ay = 2 * fy.a;   // aceleración vertical real
     const v0 = Math.hypot(vx, vy);
     const angle = ((Math.atan2(-vy, vx) * 180 / Math.PI) % 360 + 360) % 360;
     if (!Number.isFinite(v0) || !Number.isFinite(ay) || !(v0 > 0)) return null;
