@@ -307,15 +307,15 @@
           boomerSnap.profile.originSource === 'predicted',
           boomerSnap.profile);
         assert('snapshot usa el origen aim de Boomer',
-          Math.abs(boomerSnap.origin.x - 804.83) < 1 &&
-          Math.abs(boomerSnap.origin.y - 87.19) < 1, boomerSnap.origin);
+          Math.abs(boomerSnap.origin.x - 794.9) < 1 &&
+          Math.abs(boomerSnap.origin.y - 88.3) < 1, boomerSnap.origin);
 
         // Tres disparos con la boca del cañón en (805, 87), cerca del vector
         // aim: el origen medido debe quedar estable y refinar el perfil.
         const powerBar2 = document.getElementById('powerBar');
         const boomerPlay = function (v0) {
           return [8, 0, 793, 118, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            [{ s: [805, 87, 153, v0, 0, 335], time: 1175 }]];
+            [{ s: [795, 88, 153, v0, 0, 335], time: 1175 }]];
         };
         for (let i = 0; i < 3; i++) {
           powerBar2.style.width = (196 + i) + 'px';
@@ -331,14 +331,14 @@
           boomerOrigin.originSource === 'measured' &&
           boomerOrigin.originCalibrated === true, boomerOrigin);
         assert('origen medido de Boomer',
-          Math.abs(boomerOrigin.origin.a - 20.54) < 1 &&
-          Math.abs(boomerOrigin.origin.c - 26.14) < 1, boomerOrigin.origin);
+          Math.abs(boomerOrigin.origin.a - 10.49) < 1 &&
+          Math.abs(boomerOrigin.origin.c - 27.82) < 1, boomerOrigin.origin);
         assert('panel publica el origen',
           powerPanelEl.dataset.originSource === 'measured', powerPanelEl.dataset);
         const boomerOriginSnap = window.__DS_EXT_HOOK__.snapshot();
         assert('snapshot usa el origen medido',
-          Math.abs(boomerOriginSnap.origin.x - 805) < 1 &&
-          Math.abs(boomerOriginSnap.origin.y - 87) < 1, boomerOriginSnap.origin);
+          Math.abs(boomerOriginSnap.origin.x - 795) < 1 &&
+          Math.abs(boomerOriginSnap.origin.y - 88) < 1, boomerOriginSnap.origin);
 
         // Verificación multi-ángulo de Boomer (viento 0): con el mismo destino,
         // la trayectoria solución debe cerrar en el destino a ángulos bajos,

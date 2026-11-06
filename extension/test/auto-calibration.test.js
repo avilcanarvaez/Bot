@@ -350,8 +350,8 @@
     approx(armor.origin.a, 20.45, 1e-12, 'Armor a');
     const boomer = cal.getProfile('Boomer2D.png');
     assert(boomer.originSource === 'predicted', 'Boomer predicho');
-    approx(boomer.origin.a, 33 * Math.cos(52 * Math.PI / 180), 1e-9, 'Boomer a');
-    approx(boomer.origin.c, 33 * Math.sin(52 * Math.PI / 180), 1e-9, 'Boomer c');
+    approx(boomer.origin.a, 29.73 * Math.cos(69.35 * Math.PI / 180), 1e-9, 'Boomer a');
+    approx(boomer.origin.c, 29.73 * Math.sin(69.35 * Math.PI / 180), 1e-9, 'Boomer c');
     const fox = cal.getProfile('Fox2D.png');
     assert(fox.originSource === 'predicted', 'Fox predicho');
     approx(fox.origin.a, 44 * Math.cos(30 * Math.PI / 180), 1e-9, 'Fox a');
@@ -373,13 +373,13 @@
     const f = fixtures.look0[0];
     // Boca de Boomer delante, cerca de su vector aim (52°, 33): el ajuste
     // medido debe refinar la semilla, no saltar a un punto arbitrario.
-    const s = [911, -13, 153, 461, 0, 335];
+    const s = [921, -15, 153, 461, 0, 335];
     feedOrigin(cal, f, '/static/images/mobiles/Boomer2D.png', 3, s);
     const profile = cal.getProfile('Boomer2D.png');
     assert(profile.originCalibrated === true, 'calibrado');
     assert(profile.originSource === 'measured', 'fuente');
-    approx(profile.origin.a, 20, 1e-9, 'a');
-    approx(profile.origin.c, 26, 1e-9, 'c');
+    approx(profile.origin.a, 10.49, 1e-9, 'a');
+    approx(profile.origin.c, 27.82, 1e-9, 'c');
     assert(profile.originMeasured.samples === 3, 'muestras');
     assert(profile.originMeasured.stable === true, 'estable');
   });
@@ -392,8 +392,8 @@
     const profile = cal.getProfile('Boomer2D.png');
     assert(profile.originCalibrated === false, 'no aplicado');
     assert(profile.originSource === 'predicted', 'fuente');
-    approx(profile.origin.a, 33 * Math.cos(52 * Math.PI / 180), 1e-9, 'a aim');
-    approx(profile.origin.c, 33 * Math.sin(52 * Math.PI / 180), 1e-9, 'c aim');
+    approx(profile.origin.a, 29.73 * Math.cos(69.35 * Math.PI / 180), 1e-9, 'a aim');
+    approx(profile.origin.c, 29.73 * Math.sin(69.35 * Math.PI / 180), 1e-9, 'c aim');
     assert(profile.originMeasured.samples === 2, 'medido');
   });
 
@@ -407,8 +407,8 @@
     const profile = cal.getProfile('Boomer2D.png');
     assert(profile.originCalibrated === false, 'no aplicado');
     assert(profile.originSource === 'predicted', 'conserva el aim');
-    approx(profile.origin.a, 33 * Math.cos(52 * Math.PI / 180), 1e-9, 'a aim');
-    approx(profile.origin.c, 33 * Math.sin(52 * Math.PI / 180), 1e-9, 'c aim');
+    approx(profile.origin.a, 29.73 * Math.cos(69.35 * Math.PI / 180), 1e-9, 'a aim');
+    approx(profile.origin.c, 29.73 * Math.sin(69.35 * Math.PI / 180), 1e-9, 'c aim');
     assert(profile.originMeasured.samples === 3, 'medido');
     assert(profile.originMeasured.stable === true, 'estable');
   });
@@ -449,8 +449,8 @@
     assert(profile.originCalibrated === false, 'no aplicado');
     assert(profile.originMeasured.stable === false, 'inestable');
     assert(profile.originSource === 'predicted', 'fuente');
-    approx(profile.origin.a, 33 * Math.cos(52 * Math.PI / 180), 1e-9, 'a aim');
-    approx(profile.origin.c, 33 * Math.sin(52 * Math.PI / 180), 1e-9, 'c aim');
+    approx(profile.origin.a, 29.73 * Math.cos(69.35 * Math.PI / 180), 1e-9, 'a aim');
+    approx(profile.origin.c, 29.73 * Math.sin(69.35 * Math.PI / 180), 1e-9, 'c aim');
   });
 
   test('viento 0 no altera la gravedad', function () {

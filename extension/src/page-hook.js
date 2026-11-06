@@ -330,7 +330,10 @@
         calibrated: !!result.calibrated,
         reason: result.reason || null,
         powerScale: result.delta ? result.delta.powerScale : null,
-        s: result.delta ? result.delta.s : null,
+        s: result.delta ? result.delta.s : (result.s || null),
+        entries: result.entries || null,
+        shotPower: result.shot ? result.shot.power : null,
+        shotMobile: result.shot ? result.shot.mobile : null,
       });
     }
     // El `play` trae el viento del **siguiente** turno. Se aplica después de

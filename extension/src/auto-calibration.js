@@ -40,6 +40,12 @@
     armor: DEFAULT_PROFILE.origin,
   });
 
+  // PowerScale live inicial por móvil. Las muestras propias tienen prioridad;
+  // esto evita que el primer disparo de Boomer herede la escala de Armor.
+  const TUNED_POWER_SCALES = Object.freeze({
+    boomer: 0.87675,
+  });
+
   // Boca del cañón por móvil en el marco local del cuerpo: `[ángulo, radio]`
   // con 0° = horizontal hacia delante y positivo hacia arriba. Es la tabla
   // `aim` del cliente (helper.js:690-699) y coincide con el origen live de
@@ -66,7 +72,10 @@
     trico: Object.freeze([51, 51]),
     mage: Object.freeze([51, 51]),
     turtle: Object.freeze([51, 51]),
-    boomer: Object.freeze([52, 33]),
+    // Medición live de Boomer: (a,c)=(10,49,27,82), equivalente a
+    // ángulo 69,35° y radio 29,73. No usa el [130,40] de Aduka/NAK ni el
+    // [52,33] de Armor.
+    boomer: Object.freeze([69.35, 29.73]),
     electrico: Object.freeze([52, 33]),
     frog: Object.freeze([52, 33]),
     kalsiddon: Object.freeze([52, 33]),
@@ -462,11 +471,29 @@
       const windX = asNumber(s[4]);
       const vertAccel = asNumber(s[5]);
       const powerScale = v0 === null ? null : v0 / shot.power;
+      // Producción live usa una escala de velocidad distinta para Boomer
+      // (≈0,88 en los disparos observados). No aplicar el rango de Armor
+      // (1,5..3,5), porque descartaría precisamente sus muestras reales.
+      const minPowerScale = mobileKey(shot.mobile) === 'boomer'
+        ? 0.5 : this.options.minPowerScale;
 
       if (powerScale === null || !Number.isFinite(powerScale) ||
-          powerScale < this.options.minPowerScale ||
+          powerScale < minPowerScale ||
           powerScale > this.options.maxPowerScale) {
-        return { matched: true, calibrated: false, shot: shot, reason: 'power-scale-fuera-de-rango', s: s };
+        return {
+          matched: true,
+          calibrated: false,
+          shot: shot,
+          reason: 'power-scale-fuera-de-rango',
+          s: s,
+          entries: data.map(function (item) {
+            return item && Array.isArray(item.s) ? {
+              s: item.s.slice(0, 6),
+              time: item.time == null ? null : item.time,
+              thor: !!item.thor,
+            } : null;
+          }).filter(Boolean),
+        };
       }
 
       const bucket = this.bucketFor(shot.mobile);
@@ -769,7 +796,9 @@
       const key = normalizeMobile(mobile || (this.last && this.last.shot.mobile) || 'Armor2D.png');
       const bucket = this.buckets.get(key) || { power: [], gravity: [] };
       const ownPower = median(bucket.power);
-      const powerScale = ownPower === null ? median(this.powerSamples) : ownPower;
+      const powerScale = ownPower === null
+        ? (TUNED_POWER_SCALES[key] || median(this.powerSamples))
+        : ownPower;
       const observedGravity = median(bucket.gravity);
       const predictedGravity = observedGravity === null ? this.predictGravity(key) : null;
       const gravity = observedGravity !== null ? observedGravity
